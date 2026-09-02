@@ -26,6 +26,52 @@ ROADS = {
     "e4a": ("E4A", "青森自動車道"),
 }
 
+# Direction-specific brands verified against NEXCO East's Drive Plaza pages.
+# Values are internal badge identifiers; no corporate logo artwork is bundled.
+BRANDS = {
+    ("e4-north", "羽生"): ["starbucks"],
+    ("e4-north", "佐野"): ["starbucks"],
+    ("e4-north", "吾妻"): ["familyMart", "apollostation"],
+    ("e4-south", "吾妻"): ["familyMart"],
+    ("e4-north", "金成"): ["sevenEleven"],
+    ("e4-south", "金成"): ["sevenEleven"],
+    ("e4-north", "津軽"): ["sevenEleven"],
+    ("e4-south", "津軽"): ["familyMart"],
+    ("e4-north", "安積"): ["eneos"],
+    ("e4-south", "安積"): ["eneos"],
+}
+
+MANNED_PA = {
+    "厚木PA", "狭山", "菖蒲", "羽生", "都賀西方", "大谷", "安積",
+    "福島松川", "吾妻", "菅生", "鶴巣", "金成", "花巻", "滝沢",
+}
+
+FUEL_AREAS = {
+    "菖蒲", "佐野", "上河内", "那須高原", "安積", "安達太良", "吾妻",
+    "国見", "菅生", "鶴巣", "長者原", "前沢", "岩手山", "花輪",
+}
+
+
+def facilities_for(link_id, name, kind):
+    if kind not in {"SA", "PA"}:
+        return []
+    facilities = ["restroom", "accessibility"]
+    brands = BRANDS.get((link_id, name), [])
+    is_convenience = any(brand in {"sevenEleven", "familyMart"} for brand in brands)
+    if kind == "SA" and not is_convenience:
+        facilities.extend(["restaurant", "cafe", "evCharging"])
+    elif kind == "SA":
+        facilities.append("evCharging")
+    elif name in MANNED_PA and not is_convenience:
+        facilities.extend(["restaurant", "cafe"])
+    if is_convenience:
+        facilities.append("convenienceStore")
+    if name in FUEL_AREAS:
+        facilities.append("fuel")
+    if (link_id, name) in {("e4-north", "金成"), ("e4-south", "安積")}:
+        facilities.append("shower")
+    return list(dict.fromkeys(facilities))
+
 
 def distance(a, b):
     lat = math.radians((a[0] + b[0]) / 2)
@@ -253,14 +299,14 @@ def build():
                 "kind": kind,
                 "linkID": link["id"],
                 "offsetMeters": round(offset, 1),
-                "facilities": ["restroom"] if kind in {"SA", "PA"} else [],
-                "brands": [],
+                "facilities": facilities_for(link["id"], name, kind),
+                "brands": BRANDS.get((link["id"], name), []) if kind in {"SA", "PA"} else [],
             })
 
     points.sort(key=lambda item: (next(i for i, link in enumerate(links) if link["id"] == item["linkID"]), item["offsetMeters"]))
     output = {
         "version": 3,
-        "sourceAttribution": "Road geometry and point coordinates © OpenStreetMap contributors, ODbL 1.0. Generated for verification; facility details are incomplete.",
+        "sourceAttribution": "Road geometry and point coordinates © OpenStreetMap contributors, ODbL 1.0. Facility and brand data compiled from NEXCO East Drive Plaza public pages; verify current availability before travel.",
         "coverage": "海老名IC～青森中央IC（往復・検証中）",
         "links": links,
         "points": points,
