@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1788307062496,
+      "tag": "0000_sour_mentor",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1788307086600,
+      "tag": "0001_tan_arachne",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788309752482,
+      "tag": "0002_aspiring_prima",
+      "breakpoints": true
+    }
+  ]
+}

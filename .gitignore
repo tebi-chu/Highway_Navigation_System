@@ -1,0 +1,8 @@
+.DS_Store
+.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+data-overpass-*.json
+*.zip
+*.tsbuildinfo

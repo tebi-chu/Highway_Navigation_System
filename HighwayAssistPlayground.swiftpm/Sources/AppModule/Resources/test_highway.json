@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "links": [
+    {"id":"demo-west-01","highwayName":"テスト高速道路","directionName":"下り","destinationName":"西方面","lengthMeters":12000,"standardSpeedKPH":80,"polyline":[{"latitude":35.6812,"longitude":139.7671},{"latitude":35.6750,"longitude":139.7000},{"latitude":35.6600,"longitude":139.6350}],"nextLinkIDs":["demo-west-02"]},
+    {"id":"demo-west-02","highwayName":"テスト高速道路","directionName":"下り","destinationName":"西方面","lengthMeters":14000,"standardSpeedKPH":90,"polyline":[{"latitude":35.6600,"longitude":139.6350},{"latitude":35.6450,"longitude":139.5600},{"latitude":35.6250,"longitude":139.4850}],"nextLinkIDs":["demo-west-03"]},
+    {"id":"demo-west-03","highwayName":"テスト高速道路","directionName":"下り","destinationName":"西方面","lengthMeters":15000,"standardSpeedKPH":90,"polyline":[{"latitude":35.6250,"longitude":139.4850},{"latitude":35.6000,"longitude":139.4100},{"latitude":35.5700,"longitude":139.3350}],"nextLinkIDs":[]}
+  ],
+  "points": [
+    {"id":"demo-sa-01","name":"みどり丘","kind":"SA","linkID":"demo-west-01","offsetMeters":4200,"coordinate":{"latitude":35.6750,"longitude":139.7200},"facilities":["restaurant","restroom","fuel","convenienceStore","cafe","evCharging","accessibility"],"brands":["starbucks","sevenEleven","eneos"]},
+    {"id":"demo-ic-01","name":"若葉","kind":"IC","linkID":"demo-west-01","offsetMeters":8900,"coordinate":{"latitude":35.6650,"longitude":139.6600},"facilities":[]},
+    {"id":"demo-pa-01","name":"夕凪","kind":"PA","linkID":"demo-west-02","offsetMeters":3000,"coordinate":{"latitude":35.6550,"longitude":139.6000},"facilities":["restaurant","restroom","convenienceStore","evCharging"],"brands":["sevenEleven"]},
+    {"id":"demo-jct-01","name":"青空","kind":"JCT","linkID":"demo-west-02","offsetMeters":7600,"coordinate":{"latitude":35.6400,"longitude":139.5400},"facilities":[]},
+    {"id":"demo-ic-02","name":"水音","kind":"IC","linkID":"demo-west-02","offsetMeters":12100,"coordinate":{"latitude":35.6300,"longitude":139.5000},"facilities":[]},
+    {"id":"demo-sa-02","name":"星見台","kind":"SA","linkID":"demo-west-03","offsetMeters":5100,"coordinate":{"latitude":35.6150,"longitude":139.4500},"facilities":["restaurant","restroom","fuel","cafe","evCharging","shower","lodging","dogRun","accessibility"],"brands":["starbucks","eneos"]},
+    {"id":"demo-ic-03","name":"山の端","kind":"IC","linkID":"demo-west-03","offsetMeters":11200,"coordinate":{"latitude":35.5850,"longitude":139.3700},"facilities":[]}
+  ]
+}
