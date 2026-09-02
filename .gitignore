@@ -6,3 +6,4 @@ xcuserdata/
 data-overpass-*.json
 *.zip
 *.tsbuildinfo
+pages-dist/

@@ -1,5 +1,9 @@
 # 高速道路アシスト（MVP）
 
+## Web版
+
+現在の公開対象は、サーバーを使わずGitHub Pagesで動作する簡易PIN付きWebアプリです。公開とPIN変更の手順は[`pages/README.md`](pages/README.md)を参照してください。
+
 CarPlay上のGoogle Mapsとは独立してiPhoneで動作し、GPSから推定した高速道路の前方にあるSA・PA・IC・JCTを最大6件表示するSwiftUIアプリです。
 
 ## 現在の実装範囲
