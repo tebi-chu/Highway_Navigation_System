@@ -1,0 +1,17 @@
+{
+  "name": "高速道路ナビ",
+  "short_name": "高速道路ナビ",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#07140f",
+  "theme_color": "#00752f",
+  "icons": [
+    {
+      "src": "highway-icon.jpg",
+      "sizes": "1254x1254",
+      "type": "image/jpeg",
+      "purpose": "any"
+    }
+  ]
+}
