@@ -2,6 +2,12 @@ const config = window.HIGHWAY_ASSIST_CONFIG || {};
 const facilityIcons = {restaurant:'食',restroom:'WC',fuel:'給油',convenienceStore:'店',cafe:'☕',evCharging:'EV',shower:'浴',lodging:'宿',dogRun:'犬',accessibility:'♿'};
 const brandLabels = {starbucks:'STARBUCKS',familyMart:'FamilyMart',apollostation:'apollostation',sevenEleven:'7-ELEVEN',eneos:'ENEOS'};
 let links = [], points = [], watchId = null, manifest = null, loadedRegion = null;
+let wakeLock = null, navigationActive = false, estimateTimer = null;
+let estimatedMatch = null, lastGoodGpsAt = 0, estimateTickAt = 0, lastAccuracy = 0, lastReliableSpeed = 0;
+let lastGoodCoordinate = null, lastGoodCoordinateAt = 0;
+const GPS_ACCURACY_LIMIT_METERS = 100;
+const GPS_SILENCE_BEFORE_ESTIMATE_MS = 3000;
+const MAX_ESTIMATE_DURATION_MS = 15*60*1000;
 
 const $ = (id) => document.getElementById(id);
 const meters = (a,b) => {const lat=(a.latitude+b.latitude)*Math.PI/360; return Math.hypot((b.longitude-a.longitude)*111320*Math.cos(lat),(b.latitude-a.latitude)*110540)};
@@ -21,8 +27,31 @@ function authenticated() {
 function showNavigation() {
   $('login').hidden = true;
   $('navigation').hidden = false;
+  navigationActive = true;
+  requestWakeLock();
   startNavigation();
 }
+
+async function requestWakeLock() {
+  if(!navigationActive || document.visibilityState!=='visible' || !('wakeLock' in navigator) || (wakeLock && !wakeLock.released)) return;
+  try {
+    wakeLock=await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release',()=>{wakeLock=null;});
+  } catch {
+    wakeLock=null;
+  }
+}
+
+async function releaseWakeLock() {
+  const held=wakeLock;
+  wakeLock=null;
+  if(held && !held.released) await held.release().catch(()=>{});
+}
+
+document.addEventListener('visibilitychange',()=>{
+  estimateTickAt=Date.now();
+  if(document.visibilityState==='visible') requestWakeLock();
+});
 
 $('pin-form').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -41,8 +70,11 @@ $('pin-form').addEventListener('submit', async (event) => {
 });
 
 $('logout').addEventListener('click', () => {
+  navigationActive = false;
   localStorage.removeItem('highway-assist-login');
   if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  if (estimateTimer !== null) clearInterval(estimateTimer);
+  releaseWakeLock();
   location.reload();
 });
 
@@ -92,7 +124,34 @@ function findUpcoming(match) {
   return results.sort((a,b)=>a.remaining-b.remaining).slice(0,6);
 }
 
-function render(match, accuracy) {
+function advanceMatch(match, distanceMeters) {
+  const byID=new Map(links.map(link=>[link.id,link]));
+  let link=match.link,offset=match.offset+Math.max(0,distanceMeters);
+  while(offset>link.lengthMeters && link.nextLinkIDs?.length) {
+    offset-=link.lengthMeters;
+    const next=byID.get(link.nextLinkIDs[0]);
+    if(!next)break;
+    link=next;
+  }
+  return {...match,link,offset:Math.min(offset,link.lengthMeters),speed:lastReliableSpeed};
+}
+
+function updateEstimatedPosition(message='GPS受信不安定・直前速度で推定中') {
+  if(!estimatedMatch)return false;
+  const now=Date.now(),lostFor=now-lastGoodGpsAt;
+  if(lostFor<GPS_SILENCE_BEFORE_ESTIMATE_MS)return false;
+  if(lostFor>MAX_ESTIMATE_DURATION_MS) {
+    $('status-message').textContent='GPSを長時間取得できないため推定を停止しました。';
+    return false;
+  }
+  const elapsed=Math.max(0,Math.min(3,(now-estimateTickAt)/1000));
+  estimateTickAt=now;
+  estimatedMatch=advanceMatch(estimatedMatch,lastReliableSpeed*elapsed);
+  render(estimatedMatch,lastAccuracy,message);
+  return true;
+}
+
+function render(match, accuracy, statusText='') {
   const upcoming=findUpcoming(match);
   const slots=[...Array(6-upcoming.length).fill(null),...upcoming.reverse()];
   const speedKph=match.speed*3.6>=20?match.speed*3.6:match.link.standardSpeedKPH;
@@ -100,7 +159,7 @@ function render(match, accuracy) {
   $('route-number').textContent=match.link.id.startsWith('e4a-')?'E4A':match.link.id.startsWith('e4-')?'E4':'C4';
   $('highway-name').textContent=match.link.highwayName;
   $('direction').textContent=`${match.link.directionName}・${match.link.destinationName}`;
-  $('status-message').textContent=`GPS精度 ±${Math.round(accuracy)}m`;
+  $('status-message').textContent=statusText||`GPS精度 ±${Math.round(accuracy)}m`;
   $('gps-dot').classList.add('active');
   $('speed').textContent=`${Math.round(match.speed*3.6)} km/h`;
   $('point-list').replaceChildren(...slots.map((item) => {
@@ -140,9 +199,44 @@ async function startNavigation() {
     $('status-message').textContent='道路データを読み込めません。'; return;
   }
   if(!navigator.geolocation) {$('status-message').textContent='このブラウザは位置情報に対応していません。';return;}
+  estimateTimer=setInterval(()=>updateEstimatedPosition(),1000);
   watchId=navigator.geolocation.watchPosition(
-    async position=>{try{if(!await ensureRegion(position))return;const match=matchPosition(position);if(match)render(match,position.coords.accuracy);else $('status-message').textContent='対応ルート付近の高速道路を判定できません。';}catch{$('status-message').textContent='地域の道路データを読み込めません。';}},
-    error=>$('status-message').textContent=error.code===1?'Chromeの位置情報を許可してください。':'位置情報を取得できません。',
+    async position=>{try{
+      const accuracy=position.coords.accuracy;
+      if((!Number.isFinite(accuracy) || accuracy>GPS_ACCURACY_LIMIT_METERS) && estimatedMatch) {
+        lastAccuracy=Number.isFinite(accuracy)?accuracy:lastAccuracy;
+        if(!updateEstimatedPosition(`GPS精度低下 ±${Math.round(lastAccuracy)}m・直前速度で推定中`)) $('status-message').textContent=`GPS精度が低下しています（±${Math.round(lastAccuracy)}m）`;
+        return;
+      }
+      if(!await ensureRegion(position))return;
+      if(!Number.isFinite(accuracy) || accuracy>GPS_ACCURACY_LIMIT_METERS) {
+        lastAccuracy=Number.isFinite(accuracy)?accuracy:lastAccuracy;
+        if(!updateEstimatedPosition(`GPS精度低下 ±${Math.round(lastAccuracy)}m・直前速度で推定中`)) $('status-message').textContent=`GPS精度が低下しています（±${Math.round(lastAccuracy)}m）`;
+        return;
+      }
+      const match=matchPosition(position);
+      if(match) {
+        const now=Date.now();
+        if(Number.isFinite(position.coords.speed) && position.coords.speed>=0) {
+          lastReliableSpeed=position.coords.speed;
+        } else if(lastGoodCoordinate && now>lastGoodCoordinateAt) {
+          const derivedSpeed=meters(lastGoodCoordinate,{latitude:position.coords.latitude,longitude:position.coords.longitude})/((now-lastGoodCoordinateAt)/1000);
+          if(derivedSpeed>=0 && derivedSpeed<=60)lastReliableSpeed=derivedSpeed;
+        }
+        match.speed=lastReliableSpeed;
+        estimatedMatch=match;
+        lastGoodGpsAt=now;estimateTickAt=now;lastAccuracy=accuracy;
+        lastGoodCoordinate={latitude:position.coords.latitude,longitude:position.coords.longitude};lastGoodCoordinateAt=now;
+        render(match,accuracy);
+      } else {
+        estimatedMatch=null;
+        $('status-message').textContent='対応ルート付近の高速道路を判定できません。';
+      }
+    }catch{$('status-message').textContent='地域の道路データを読み込めません。';}},
+    error=>{
+      if(error.code===1) {$('status-message').textContent='Chromeの位置情報を許可してください。';return;}
+      if(!updateEstimatedPosition()) $('status-message').textContent='位置情報を取得できません。';
+    },
     {enableHighAccuracy:true,maximumAge:2000,timeout:15000},
   );
 }
