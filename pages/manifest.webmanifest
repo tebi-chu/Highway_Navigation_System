@@ -8,9 +8,9 @@
   "theme_color": "#00752f",
   "icons": [
     {
-      "src": "highway-icon.jpg",
+      "src": "highway-icon.png",
       "sizes": "1254x1254",
-      "type": "image/jpeg",
+      "type": "image/png",
       "purpose": "any"
     }
   ]
