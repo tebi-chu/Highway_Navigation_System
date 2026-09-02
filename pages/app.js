@@ -47,14 +47,17 @@ $('logout').addEventListener('click', () => {
 });
 
 function nearest(link, position) {
-  let best={distance:Infinity,offset:0}, travel=0;
+  let best={distance:Infinity,offset:0,bearing:0}, travel=0;
   const latScale=110540,lonScale=111320*Math.cos(position.latitude*Math.PI/180);
   for(let i=1;i<link.polyline.length;i++) {
     const a=link.polyline[i-1],b=link.polyline[i],dx=(b.longitude-a.longitude)*lonScale,dy=(b.latitude-a.latitude)*latScale;
     const px=(position.longitude-a.longitude)*lonScale,py=(position.latitude-a.latitude)*latScale;
     const ratio=Math.max(0,Math.min(1,(px*dx+py*dy)/(dx*dx+dy*dy||1)));
     const distance=Math.hypot(px-ratio*dx,py-ratio*dy),length=meters(a,b);
-    if(distance<best.distance) best={distance,offset:travel+length*ratio};
+    if(distance<best.distance) {
+      const bearing=(Math.atan2(dx,dy)*180/Math.PI+360)%360;
+      best={distance,offset:travel+length*ratio,bearing};
+    }
     travel+=length;
   }
   return best;
@@ -62,7 +65,13 @@ function nearest(link, position) {
 
 function matchPosition(position) {
   const coordinate={latitude:position.coords.latitude,longitude:position.coords.longitude};
-  const candidates=links.map(link=>({link,...nearest(link,coordinate)})).sort((a,b)=>a.distance-b.distance);
+  const heading=position.coords.heading;
+  const moving=Number.isFinite(heading) && (position.coords.speed||0)>=2;
+  const candidates=links.map(link=>{
+    const candidate=nearest(link,coordinate);
+    const angle=Math.abs(((candidate.bearing-heading+540)%360)-180);
+    return {link,...candidate,score:candidate.distance+(moving?angle*12:0)};
+  }).sort((a,b)=>a.score-b.score);
   if(!candidates[0] || candidates[0].distance>1500) return null;
   return {...candidates[0],speed:Math.max(0,position.coords.speed||0)};
 }
@@ -88,7 +97,7 @@ function render(match, accuracy) {
   const slots=[...Array(6-upcoming.length).fill(null),...upcoming.reverse()];
   const speedKph=match.speed*3.6>=20?match.speed*3.6:match.link.standardSpeedKPH;
 
-  $('route-number').textContent=match.link.id==='e4-down'?'E4':'C4';
+  $('route-number').textContent=match.link.id.startsWith('e4a-')?'E4A':match.link.id.startsWith('e4-')?'E4':'C4';
   $('highway-name').textContent=match.link.highwayName;
   $('direction').textContent=`${match.link.directionName}・${match.link.destinationName}`;
   $('status-message').textContent=`GPS精度 ±${Math.round(accuracy)}m`;

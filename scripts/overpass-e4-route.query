@@ -1,0 +1,4 @@
+[out:json][timeout:180];
+relation["type"="route"]["route"="road"]["ref"="E4"];
+way(r)["highway"="motorway"];
+out tags geom;

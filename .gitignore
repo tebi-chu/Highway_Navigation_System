@@ -4,6 +4,8 @@ DerivedData/
 *.xcuserstate
 xcuserdata/
 data-overpass-*.json
+data-osm-*.json
+__pycache__/
 *.zip
 *.tsbuildinfo
 pages-dist/

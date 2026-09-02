@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - "pages/**"
-      - "web/data/highway.json"
+      - "web/data/*.json"
       - "web/data/highway-manifest.json"
       - ".github/workflows/deploy-pages.yml"
   workflow_dispatch:

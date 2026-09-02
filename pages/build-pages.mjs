@@ -19,7 +19,7 @@ for (const file of ['index.html', 'styles.css', 'app.js']) {
   await cp(path.join(source, file), path.join(output, file));
 }
 await cp(path.join(root, 'web/data/highway-manifest.json'), path.join(output, 'data/manifest.json'));
-await cp(path.join(root, 'web/data/highway.json'), path.join(output, 'data/kanto-central.json'));
+await cp(path.join(root, 'web/data/ebina-aomori.json'), path.join(output, 'data/ebina-aomori.json'));
 await writeFile(path.join(output, '.nojekyll'), '');
 
 const hash = createHash('sha256').update(pin).digest('hex');
