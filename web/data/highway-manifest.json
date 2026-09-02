@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "updatedAt": "2026-09-02",
+  "regions": [
+    {
+      "id": "kanto-central",
+      "name": "圏央道・東北道（検証区間）",
+      "file": "data/kanto-central.json",
+      "bounds": {
+        "south": 35.15,
+        "west": 138.95,
+        "north": 36.85,
+        "east": 140.15
+      }
+    }
+  ]
+}
