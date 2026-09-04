@@ -145,7 +145,7 @@ function findUpcoming(match) {
     for(const point of points)if(point.linkID===link.id)results.push({...point,remaining:current.distance+point.offsetMeters});
     for(const nextID of link.nextLinkIDs||[])queue.push({id:nextID,distance:current.distance+link.lengthMeters});
   }
-  return results.sort((a,b)=>a.remaining-b.remaining).slice(0,5);
+  return results.sort((a,b)=>a.remaining-b.remaining).slice(0,4);
 }
 
 function advanceMatch(match, distanceMeters) {
@@ -177,7 +177,7 @@ function updateEstimatedPosition(message='GPS受信不安定・直前速度で�
 
 function render(match, accuracy, statusText='') {
   const upcoming=findUpcoming(match);
-  const slots=[...Array(5-upcoming.length).fill(null),...upcoming.reverse()];
+  const slots=[...Array(4-upcoming.length).fill(null),...upcoming.reverse()];
   const speedKph=match.speed*3.6>=20?match.speed*3.6:match.link.standardSpeedKPH;
 
   $('route-number').textContent=match.link.id.startsWith('e4a-')?'E4A':match.link.id.startsWith('e4-')?'E4':'C4';
