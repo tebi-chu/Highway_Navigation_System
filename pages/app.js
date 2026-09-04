@@ -1,5 +1,15 @@
 const config = window.HIGHWAY_ASSIST_CONFIG || {};
-const facilityIcons = {restaurant:'🍴',restroom:'🚻',fuel:'⛽',convenienceStore:'🏪',cafe:'☕',evCharging:'⚡',shower:'🚿',lodging:'🛏️',dogRun:'🐕',accessibility:'♿'};
+const facilityLabels = {restaurant:'食事',restroom:'トイレ',fuel:'給油',convenienceStore:'コンビニ',cafe:'カフェ',evCharging:'EV充電',shower:'シャワー',lodging:'宿泊',dogRun:'ドッグラン',accessibility:'バリアフリー'};
+const facilityIcons = {
+  restaurant:'<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 2v11m4-11v11M8 2v28m13-28c-4 5-5 11-3 16h3v12m0-28v16"/></svg>',
+  restroom:'<svg viewBox="0 0 38 32" aria-hidden="true"><circle cx="10" cy="5" r="3"/><path d="M10 10v10m-5-4 2-6h6l2 6m-7 4-1 10m5-10 1 10"/><circle cx="28" cy="5" r="3"/><path d="M28 10v20m-6-10 3-10h6l3 10h-12m3 0-1 10m7-10 1 10"/></svg>',
+  cafe:'<svg viewBox="0 0 36 32" aria-hidden="true"><path d="M5 11h22v8c0 6-4 10-11 10S5 25 5 19v-8Zm22 3h3c5 0 5 8 0 8h-4M10 2c-3 3 3 4 0 7m7-7c-3 3 3 4 0 7"/></svg>',
+  evCharging:'<svg viewBox="0 0 38 32" aria-hidden="true"><path d="M3 3h18v27H3V3Zm4 4h10v8H7V7Zm14 4 5 3v12c0 4 7 4 7 0V10l-4-4m-7 11h5"/><path d="m13 17-4 7h4l-2 6 7-9h-4l2-4Z"/></svg>',
+  shower:'<svg viewBox="0 0 38 32" aria-hidden="true"><path d="M5 14a10 10 0 0 1 20-2m-4-4 8 8-12 2 4-10Z"/><path d="M20 21v2m6-4v2m-1 5v2m6-8v2m0 5v2"/></svg>',
+  lodging:'<svg viewBox="0 0 40 32" aria-hidden="true"><path d="M3 5v25m0-12h34v12M8 18v-8h10c5 0 7 3 7 8M8 14h8"/></svg>',
+  dogRun:'<svg viewBox="0 0 38 32" aria-hidden="true"><circle cx="12" cy="9" r="4"/><circle cx="25" cy="8" r="4"/><circle cx="7" cy="18" r="3"/><circle cx="30" cy="18" r="3"/><path d="M10 29c0-7 4-12 9-12s9 5 9 12c-5-3-13-3-18 0Z"/></svg>',
+  accessibility:'<svg viewBox="0 0 36 32" aria-hidden="true"><circle cx="17" cy="5" r="3"/><path d="m16 10-2 9h10l5 9m-13-12 9-1m-11 4a8 8 0 1 0 9 10"/></svg>',
+};
 const brandLabels = {starbucks:'STARBUCKS',familyMart:'FamilyMart',apollostation:'apollostation',sevenEleven:'7-ELEVEN',eneos:'ENEOS'};
 let links = [], points = [], watchId = null, manifest = null, loadedRegion = null;
 let wakeLock = null, navigationActive = false, estimateTimer = null;
@@ -179,8 +189,11 @@ function render(match, accuracy, statusText='') {
   $('point-list').replaceChildren(...slots.map((item) => {
     if(!item) {const empty=document.createElement('div');empty.className='empty-slot';return empty;}
     const article=document.createElement('article');article.className=`live-card kind-${item.kind.toLowerCase()}`;
-    const facilities=[...item.brands.map(brand=>`<b class="brand-badge brand-${brand}">${brandLabels[brand]||brand}</b>`),...item.facilities.map(facility=>`<span>${facilityIcons[facility]||'●'}</span>`)].join('');
-    article.innerHTML=`<div class="live-title"><span>${item.kind}</span><strong>${item.name}</strong></div>${facilities?`<div class="facility-row">${facilities}</div>`:''}<div class="live-metrics"><b>${(item.remaining/1000).toFixed(1)}<small>km</small></b><b>${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b></div>`;
+    const branded=new Set(item.brands.flatMap(brand=>brand==='starbucks'?['cafe']:['sevenEleven','familyMart'].includes(brand)?['convenienceStore']:['eneos','apollostation'].includes(brand)?['fuel']:[]));
+    const brands=item.brands.map(brand=>`<b class="brand-badge brand-${brand}">${brandLabels[brand]||brand}</b>`);
+    const icons=item.facilities.filter(facility=>!branded.has(facility)).map(facility=>facility==='fuel'||facility==='convenienceStore'?`<b class="service-text">${facilityLabels[facility]}</b>`:`<span class="facility-icon" title="${facilityLabels[facility]||''}">${facilityIcons[facility]||''}</span>`);
+    const facilities=[...brands,...icons].join('');
+    article.innerHTML=`<div class="live-title"><span>${item.kind}</span><strong>${item.name}</strong></div><div class="live-details${facilities?'':' no-facilities'}">${facilities?`<div class="facility-row">${facilities}</div>`:''}<div class="live-metrics"><b class="arrival-time">${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b><b class="next-distance">${(item.remaining/1000).toFixed(1)}<small>km</small></b></div></div>`;
     return article;
   }));
 }
