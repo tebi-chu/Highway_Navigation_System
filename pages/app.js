@@ -1,8 +1,9 @@
 const config = window.HIGHWAY_ASSIST_CONFIG || {};
-const facilityIcons = {restaurant:'食',restroom:'WC',fuel:'給油',convenienceStore:'店',cafe:'☕',evCharging:'EV',shower:'浴',lodging:'宿',dogRun:'犬',accessibility:'♿'};
+const facilityIcons = {restaurant:'🍴',restroom:'🚻',fuel:'⛽',convenienceStore:'🏪',cafe:'☕',evCharging:'⚡',shower:'🚿',lodging:'🛏️',dogRun:'🐕',accessibility:'♿'};
 const brandLabels = {starbucks:'STARBUCKS',familyMart:'FamilyMart',apollostation:'apollostation',sevenEleven:'7-ELEVEN',eneos:'ENEOS'};
 let links = [], points = [], watchId = null, manifest = null, loadedRegion = null;
 let wakeLock = null, navigationActive = false, estimateTimer = null;
+let wakeLockRetryTimer = null, wakeLockMonitorTimer = null, wakeLockRequestPending = false;
 let estimatedMatch = null, lastGoodGpsAt = 0, estimateTickAt = 0, lastAccuracy = 0, lastReliableSpeed = 0;
 let lastGoodCoordinate = null, lastGoodCoordinateAt = 0;
 const GPS_ACCURACY_LIMIT_METERS = 100;
@@ -33,13 +34,22 @@ function showNavigation() {
 }
 
 async function requestWakeLock() {
-  if(!navigationActive || document.visibilityState!=='visible' || !('wakeLock' in navigator) || (wakeLock && !wakeLock.released)) return;
+  if(!navigationActive || document.visibilityState!=='visible' || !('wakeLock' in navigator) || wakeLockRequestPending || (wakeLock && !wakeLock.released)) return;
+  wakeLockRequestPending=true;
   try {
     wakeLock=await navigator.wakeLock.request('screen');
-    wakeLock.addEventListener('release',()=>{wakeLock=null;});
+    wakeLock.addEventListener('release',()=>{wakeLock=null;scheduleWakeLockRetry(500);},{once:true});
   } catch {
     wakeLock=null;
+    scheduleWakeLockRetry(5000);
+  } finally {
+    wakeLockRequestPending=false;
   }
+}
+
+function scheduleWakeLockRetry(delay=5000) {
+  if(wakeLockRetryTimer!==null || !navigationActive || document.visibilityState!=='visible')return;
+  wakeLockRetryTimer=setTimeout(()=>{wakeLockRetryTimer=null;requestWakeLock();},delay);
 }
 
 async function releaseWakeLock() {
@@ -50,8 +60,10 @@ async function releaseWakeLock() {
 
 document.addEventListener('visibilitychange',()=>{
   estimateTickAt=Date.now();
-  if(document.visibilityState==='visible') requestWakeLock();
+  if(document.visibilityState==='visible')requestWakeLock();
 });
+document.addEventListener('pointerdown',()=>requestWakeLock(),{passive:true});
+document.addEventListener('touchstart',()=>requestWakeLock(),{passive:true});
 
 $('pin-form').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -74,6 +86,8 @@ $('logout').addEventListener('click', () => {
   localStorage.removeItem('highway-assist-login');
   if (watchId !== null) navigator.geolocation.clearWatch(watchId);
   if (estimateTimer !== null) clearInterval(estimateTimer);
+  if (wakeLockMonitorTimer !== null) clearInterval(wakeLockMonitorTimer);
+  if (wakeLockRetryTimer !== null) clearTimeout(wakeLockRetryTimer);
   releaseWakeLock();
   location.reload();
 });
@@ -121,7 +135,7 @@ function findUpcoming(match) {
     for(const point of points)if(point.linkID===link.id)results.push({...point,remaining:current.distance+point.offsetMeters});
     for(const nextID of link.nextLinkIDs||[])queue.push({id:nextID,distance:current.distance+link.lengthMeters});
   }
-  return results.sort((a,b)=>a.remaining-b.remaining).slice(0,6);
+  return results.sort((a,b)=>a.remaining-b.remaining).slice(0,5);
 }
 
 function advanceMatch(match, distanceMeters) {
@@ -153,7 +167,7 @@ function updateEstimatedPosition(message='GPS受信不安定・直前速度で�
 
 function render(match, accuracy, statusText='') {
   const upcoming=findUpcoming(match);
-  const slots=[...Array(6-upcoming.length).fill(null),...upcoming.reverse()];
+  const slots=[...Array(5-upcoming.length).fill(null),...upcoming.reverse()];
   const speedKph=match.speed*3.6>=20?match.speed*3.6:match.link.standardSpeedKPH;
 
   $('route-number').textContent=match.link.id.startsWith('e4a-')?'E4A':match.link.id.startsWith('e4-')?'E4':'C4';
@@ -199,6 +213,7 @@ async function startNavigation() {
     $('status-message').textContent='道路データを読み込めません。'; return;
   }
   if(!navigator.geolocation) {$('status-message').textContent='このブラウザは位置情報に対応していません。';return;}
+  wakeLockMonitorTimer=setInterval(()=>requestWakeLock(),15000);
   estimateTimer=setInterval(()=>updateEstimatedPosition(),1000);
   watchId=navigator.geolocation.watchPosition(
     async position=>{try{
