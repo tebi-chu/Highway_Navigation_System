@@ -14,3 +14,5 @@
 /* Compact route header: preserve type sizes while reclaiming vertical space. */
 .live-route{min-height:52px;padding:5px 12px;line-height:1.05}.live-route div{gap:8px}.live-route div span{padding:3px 6px}.live-route>b{line-height:1.05}
 @media(max-width:520px){.live-route{min-height:48px;padding:4px 10px;row-gap:2px}.live-route div span{padding:2px 5px}}
+
+.brand-tullys{background:#6f3b20;color:#fff}.brand-doutor{background:#f5d62e;color:#23170e}.brand-lawson{background:#fff;color:#1671b9;border-bottom:4px solid #1671b9}
