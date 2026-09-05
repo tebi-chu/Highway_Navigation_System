@@ -91,17 +91,6 @@ $('pin-form').addEventListener('submit', async (event) => {
   showNavigation();
 });
 
-$('logout').addEventListener('click', () => {
-  navigationActive = false;
-  localStorage.removeItem('highway-assist-login');
-  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-  if (estimateTimer !== null) clearInterval(estimateTimer);
-  if (wakeLockMonitorTimer !== null) clearInterval(wakeLockMonitorTimer);
-  if (wakeLockRetryTimer !== null) clearTimeout(wakeLockRetryTimer);
-  releaseWakeLock();
-  location.reload();
-});
-
 function nearest(link, position) {
   let best={distance:Infinity,offset:0,bearing:0}, travel=0;
   const latScale=110540,lonScale=111320*Math.cos(position.latitude*Math.PI/180);
@@ -134,7 +123,7 @@ function matchPosition(position) {
 
 function findUpcoming(match) {
   const byID=new Map(links.map(link=>[link.id,link])),results=[];
-  for(const point of points) if(point.linkID===match.link.id && point.offsetMeters>match.offset+100) results.push({...point,remaining:point.offsetMeters-match.offset});
+  for(const point of points) if(point.linkID===match.link.id && point.offsetMeters>=match.offset-200) results.push({...point,remaining:point.offsetMeters-match.offset});
   const queue=(match.link.nextLinkIDs||[]).map(id=>({id,distance:match.link.lengthMeters-match.offset}));
   const visited=new Map();
   while(queue.length && results.length<24) {
@@ -145,7 +134,11 @@ function findUpcoming(match) {
     for(const point of points)if(point.linkID===link.id)results.push({...point,remaining:current.distance+point.offsetMeters});
     for(const nextID of link.nextLinkIDs||[])queue.push({id:nextID,distance:current.distance+link.lengthMeters});
   }
-  return results.sort((a,b)=>a.remaining-b.remaining).slice(0,4);
+  const unique=[];
+  for(const item of results.sort((a,b)=>a.remaining-b.remaining)) {
+    if(!unique.some(existing=>existing.name===item.name && existing.kind===item.kind && Math.abs(existing.remaining-item.remaining)<500))unique.push(item);
+  }
+  return unique.slice(0,5);
 }
 
 function advanceMatch(match, distanceMeters) {
@@ -177,7 +170,7 @@ function updateEstimatedPosition(message='GPS受信不安定・直前速度で�
 
 function render(match, accuracy, statusText='') {
   const upcoming=findUpcoming(match);
-  const slots=[...Array(4-upcoming.length).fill(null),...upcoming.reverse()];
+  const slots=[...Array(5-upcoming.length).fill(null),...upcoming.reverse()];
   const speedKph=match.speed*3.6>=20?match.speed*3.6:match.link.standardSpeedKPH;
 
   $('route-number').textContent=match.link.id.startsWith('e4a-')?'E4A':match.link.id.startsWith('e4-')?'E4':'C4';
@@ -193,7 +186,7 @@ function render(match, accuracy, statusText='') {
     const brands=item.brands.map(brand=>`<b class="brand-badge brand-${brand}">${brandLabels[brand]||brand}</b>`);
     const icons=item.facilities.filter(facility=>!branded.has(facility)).map(facility=>facility==='fuel'||facility==='convenienceStore'?`<b class="service-text">${facilityLabels[facility]}</b>`:`<span class="facility-icon" title="${facilityLabels[facility]||''}">${facilityIcons[facility]||''}</span>`);
     const facilities=[...brands,...icons].join('');
-    article.innerHTML=`<div class="live-title"><span>${item.kind}</span><strong>${item.name}</strong></div><div class="live-details${facilities?'':' no-facilities'}">${facilities?`<div class="facility-row">${facilities}</div>`:''}<div class="live-metrics"><b class="arrival-time">${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b><b class="next-distance">${(item.remaining/1000).toFixed(1)}<small>km</small></b></div></div>`;
+    article.innerHTML=`<div class="live-title"><span>${item.kind}</span><strong>${item.name}</strong></div><div class="live-details${facilities?'':' no-facilities'}">${facilities?`<div class="facility-row">${facilities}</div>`:''}<div class="live-metrics"><b class="arrival-time">${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b><b class="next-distance">${(Math.max(0,item.remaining)/1000).toFixed(1)}<small>km</small></b></div></div>`;
     return article;
   }));
 }
