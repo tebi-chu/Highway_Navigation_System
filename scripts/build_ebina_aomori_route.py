@@ -51,6 +51,24 @@ FUEL_AREAS = {
     "国見", "菅生", "鶴巣", "長者原", "前沢", "岩手山", "花輪",
 }
 
+# The original E4 extracts were assembled from several Overpass responses.  A
+# section in Iwate contained road geometry but not all named junction/service
+# nodes, so these verified OSM points keep the test corridor complete even when
+# a source response omits nearby objects.
+VERIFIED_ROUTE_POINTS = [
+    (727603736, "一関IC", "IC", (38.9404949, 141.1022330)),
+    (9121432197, "平泉スマートIC", "IC", (38.9776074, 141.1106942)),
+    (1210623456, "中尊寺PA", "PA", (38.9785981, 141.1101036)),
+    (946778198, "水沢IC", "IC", (39.1671421, 141.1173226)),
+    (471302071, "花巻IC", "IC", (39.4412830, 141.1084610)),
+    (1022661265, "紫波SA", "SA", (39.5110307, 141.1016950)),
+    (679760697, "紫波IC", "IC", (39.5589908, 141.1169687)),
+    (218548250, "矢巾PA", "PA", (39.6146980, 141.1295999)),
+    (7142509462, "矢巾スマートIC", "IC", (39.6176069, 141.1296931)),
+    (666473795, "盛岡南IC", "IC", (39.6556142, 141.1210463)),
+    (670889262, "滝沢IC", "IC", (39.7938140, 141.1121836)),
+]
+
 
 def facilities_for(link_id, name, kind):
     if kind not in {"SA", "PA"}:
@@ -221,6 +239,23 @@ def point_kind(name):
     return None
 
 
+def point_names(value):
+    """Expand combined OSM labels such as `佐野SA;佐野スマートIC`."""
+    normalized = unicodedata.normalize("NFKC", value)
+    normalized = re.sub(r"[（(](上り|下り|内回り|外回り|内廻り|外廻り)[）)]", "", normalized)
+    parts = [part.strip() for part in re.split(r"[;:]", normalized) if part.strip()]
+    expanded = []
+    for part in parts:
+        combined = re.fullmatch(r"(.+?)IC\s*/\s*PA", part, flags=re.IGNORECASE)
+        candidates = [combined.group(1) + "IC", combined.group(1) + "PA"] if combined else [part]
+        for candidate in candidates:
+            kind = point_kind(candidate)
+            name = normalize_name(candidate)
+            if kind and name:
+                expanded.append((name, kind))
+    return list(dict.fromkeys(expanded))
+
+
 def coordinates_json(route_points):
     return [{"latitude": round(lat, 7), "longitude": round(lon, 7)} for lat, lon in route_points]
 
@@ -274,10 +309,11 @@ def build():
     for element in elements:
         tags, coordinate = element.get("tags", {}), center(element)
         name = tags.get("name")
-        kind = point_kind(name or "")
-        if not name or not kind or coordinate is None:
+        if not name or coordinate is None:
             continue
-        candidates.append((element["id"], name, kind, coordinate))
+        for normalized_name, kind in point_names(name):
+            candidates.append((element["id"], normalized_name, kind, coordinate))
+    candidates.extend(VERIFIED_ROUTE_POINTS)
 
     points = []
     for link in links:
