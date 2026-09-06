@@ -71,7 +71,10 @@ async function releaseWakeLock() {
 
 document.addEventListener('visibilitychange',()=>{
   estimateTickAt=Date.now();
-  if(document.visibilityState==='visible')requestWakeLock();
+  if(document.visibilityState==='visible') {
+    requestWakeLock();
+    refreshLocationAfterResume();
+  }
 });
 document.addEventListener('pointerdown',()=>requestWakeLock(),{passive:true});
 document.addEventListener('touchstart',()=>requestWakeLock(),{passive:true});
@@ -213,18 +216,8 @@ async function ensureRegion(position) {
   return true;
 }
 
-async function startNavigation() {
+async function handlePosition(position) {
   try {
-    const response=await fetch('data/manifest.json');
-    manifest=await response.json();
-  } catch {
-    $('status-message').textContent='道路データを読み込めません。'; return;
-  }
-  if(!navigator.geolocation) {$('status-message').textContent='このブラウザは位置情報に対応していません。';return;}
-  wakeLockMonitorTimer=setInterval(()=>requestWakeLock(),15000);
-  estimateTimer=setInterval(()=>updateEstimatedPosition(),1000);
-  watchId=navigator.geolocation.watchPosition(
-    async position=>{try{
       const accuracy=position.coords.accuracy;
       if((!Number.isFinite(accuracy) || accuracy>GPS_ACCURACY_LIMIT_METERS) && estimatedMatch) {
         lastAccuracy=Number.isFinite(accuracy)?accuracy:lastAccuracy;
@@ -255,13 +248,41 @@ async function startNavigation() {
         estimatedMatch=null;
         $('status-message').textContent='対応ルート付近の高速道路を判定できません。';
       }
-    }catch{$('status-message').textContent='地域の道路データを読み込めません。';}},
-    error=>{
-      if(error.code===1) {$('status-message').textContent='Chromeの位置情報を許可してください。';return;}
-      if(!updateEstimatedPosition()) $('status-message').textContent='位置情報を取得できません。';
-    },
-    {enableHighAccuracy:true,maximumAge:2000,timeout:15000},
+  } catch {$('status-message').textContent='地域の道路データを読み込めません。';}
+}
+
+function handlePositionError(error) {
+  if(error.code===1) {$('status-message').textContent='Chromeの位置情報を許可してください。';return;}
+  if(!updateEstimatedPosition()) $('status-message').textContent='位置情報を取得できません。';
+}
+
+function startLocationWatch(maximumAge=2000) {
+  if(watchId!==null) navigator.geolocation.clearWatch(watchId);
+  watchId=navigator.geolocation.watchPosition(handlePosition,handlePositionError,{enableHighAccuracy:true,maximumAge,timeout:15000});
+}
+
+function refreshLocationAfterResume() {
+  if(!navigationActive || !manifest || !navigator.geolocation)return;
+  $('status-message').textContent='現在位置を再確認しています…';
+  startLocationWatch(0);
+  navigator.geolocation.getCurrentPosition(
+    handlePosition,
+    handlePositionError,
+    {enableHighAccuracy:true,maximumAge:0,timeout:15000},
   );
+}
+
+async function startNavigation() {
+  try {
+    const response=await fetch('data/manifest.json');
+    manifest=await response.json();
+  } catch {
+    $('status-message').textContent='道路データを読み込めません。'; return;
+  }
+  if(!navigator.geolocation) {$('status-message').textContent='このブラウザは位置情報に対応していません。';return;}
+  wakeLockMonitorTimer=setInterval(()=>requestWakeLock(),15000);
+  estimateTimer=setInterval(()=>updateEstimatedPosition(),1000);
+  startLocationWatch();
 }
 
 if(authenticated()) showNavigation();
