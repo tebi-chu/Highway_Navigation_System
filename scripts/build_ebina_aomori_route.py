@@ -290,10 +290,16 @@ def build():
     links, raw_routes = [], {}
     for link_id, graph_id, highway, direction, destination, start, end, next_id in definitions:
         graph, coordinates = graphs[graph_id]
-        route_points, length = route(graph, coordinates, anchors[start], anchors[end])
-        if length < 3_000:
+        route_points, detailed_length = route(graph, coordinates, anchors[start], anchors[end])
+        display_route = simplify(route_points)
+        # The browser map matcher measures progress along the shipped polyline.
+        # Project targets and calculate link length against that exact same
+        # geometry; mixing detailed and simplified lengths accumulated almost
+        # 1 km of error over the full Tohoku Expressway.
+        length = sum(distance(first, second) for first, second in zip(display_route, display_route[1:]))
+        if detailed_length < 3_000 or length < 3_000:
             raise RuntimeError(f"Unexpectedly short route: {link_id} {length}")
-        raw_routes[link_id] = route_points
+        raw_routes[link_id] = display_route
         links.append({
             "id": link_id,
             "highwayName": highway,
@@ -301,7 +307,7 @@ def build():
             "destinationName": destination,
             "lengthMeters": round(length, 1),
             "standardSpeedKPH": 100 if graph_id == "e4" else 80,
-            "polyline": coordinates_json(simplify(route_points)),
+            "polyline": coordinates_json(display_route),
             "nextLinkIDs": [next_id] if next_id else [],
         })
 
