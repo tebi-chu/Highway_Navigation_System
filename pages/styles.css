@@ -21,3 +21,16 @@
 /* Co-located SA/PA + smart IC badges and compact romanized place names. */
 .live-title .point-kinds{display:flex;align-items:center;gap:5px;flex:0 0 auto}.live-title .point-kinds span{border:1px solid #fff;padding:3px 5px;font-size:19.5px;font-weight:900}.point-name{min-width:0;display:flex;align-items:baseline;gap:9px;white-space:nowrap}.live-title .point-name>span{overflow:hidden;text-overflow:ellipsis;border:0;padding:0;font-size:inherit}.point-name>small{flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;font-size:.5em;font-weight:700;letter-spacing:.02em;opacity:.88}
 @media(max-width:520px){.live-title{gap:8px;padding-inline:9px}.live-title .point-kinds{gap:3px}.live-title .point-kinds span{padding:2px 4px;font-size:17px}.point-name{gap:6px}.point-name>small{font-size:.5em}}
+
+/* Landscape driving mode: three full cards at right and later points in a compact left column. */
+@media(orientation:landscape) and (max-height:900px){
+  .navigation-screen{width:100%;max-width:none;padding:calc(5px + env(safe-area-inset-top,0px)) max(10px,env(safe-area-inset-right,0px)) max(4px,env(safe-area-inset-bottom,0px)) max(10px,env(safe-area-inset-left,0px))}
+  .live-route{width:100%;min-height:44px;flex-wrap:nowrap;padding:4px 12px;border-radius:10px}.live-route div span{font-size:17px}.live-route strong{font-size:22px}.live-route>b{font-size:18px;white-space:nowrap}
+  .live-status{height:25px;padding:3px 4px;font-size:12px}
+  .live-list{display:grid;grid-template-columns:minmax(220px,1fr) minmax(0,2fr);grid-template-rows:minmax(0,1fr);gap:8px}
+  .landscape-column{display:grid;min-height:0;gap:6px}.primary-column{grid-template-rows:repeat(3,minmax(0,1fr))}.compact-column{grid-template-rows:repeat(4,minmax(0,1fr))}
+  .primary-column .live-title{min-height:30px;padding:3px 9px}.primary-column .live-title .point-kinds span{font-size:15px;padding:2px 4px}.primary-column .live-title strong{font-size:22px}.primary-column .point-name>small{font-size:.5em}
+  .primary-column .live-details{grid-template-columns:minmax(0,1fr) 132px}.primary-column .facility-row{padding:2px 5px}.primary-column .facility-row>span.facility-icon{height:34px;min-width:25px;max-width:36px}.primary-column .facility-row .brand-badge{height:31px;font-size:11px;padding-inline:5px}.primary-column .live-metrics .arrival-time{font-size:27px}.primary-column .live-metrics .next-distance{font-size:21px}.primary-column .live-metrics small{font-size:11px}
+  .compact-card{grid-template-rows:auto 1fr;border-radius:9px}.compact-card .live-title{min-height:25px;padding:2px 7px;gap:5px}.compact-card .live-title .point-kinds{gap:2px}.compact-card .live-title .point-kinds span{font-size:11px;padding:1px 3px}.compact-card .live-title strong{font-size:16px;overflow:hidden;text-overflow:ellipsis}.compact-metrics{display:flex;align-items:center;justify-content:space-between;gap:5px;padding:1px 8px;background:#f4fbf7}.compact-metrics b{font-size:17px;white-space:nowrap}.compact-metrics small{margin-left:2px;font-size:9px}
+  .vehicle-position{height:38px;grid-template-columns:34px 1fr auto}.vehicle-position i{border-left-width:10px;border-right-width:10px;border-bottom-width:23px}.vehicle-position b{font-size:17px}.vehicle-position span{font-size:14px}
+}

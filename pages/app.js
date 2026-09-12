@@ -17,6 +17,7 @@ let wakeLock = null, navigationActive = false, estimateTimer = null;
 let wakeLockRetryTimer = null, wakeLockMonitorTimer = null, wakeLockRequestPending = false;
 let estimatedMatch = null, lastGoodGpsAt = 0, estimateTickAt = 0, lastAccuracy = 0, lastReliableSpeed = 0;
 let lastGoodCoordinate = null, lastGoodCoordinateAt = 0;
+let lastRenderArgs = null;
 const GPS_ACCURACY_LIMIT_METERS = 100;
 const GPS_SILENCE_BEFORE_ESTIMATE_MS = 3000;
 const MAX_ESTIMATE_DURATION_MS = 15*60*1000;
@@ -167,7 +168,7 @@ function findUpcoming(match) {
     }
     partner.remaining=Math.min(partner.remaining,item.remaining);
   }
-  return merged.slice(0,5);
+  return merged.slice(0,7);
 }
 
 function advanceMatch(match, distanceMeters) {
@@ -198,8 +199,11 @@ function updateEstimatedPosition(message='GPS受信不安定・直前速度で�
 }
 
 function render(match, accuracy, statusText='') {
+  lastRenderArgs={match,accuracy,statusText};
   const upcoming=findUpcoming(match);
-  const slots=[...Array(5-upcoming.length).fill(null),...upcoming.reverse()];
+  const landscape=window.matchMedia('(orientation: landscape)').matches;
+  const portraitPoints=upcoming.slice(0,5);
+  const slots=[...Array(5-portraitPoints.length).fill(null),...portraitPoints.reverse()];
   const speedKph=match.speed*3.6>=20?match.speed*3.6:match.link.standardSpeedKPH;
 
   $('route-number').textContent=match.link.id.startsWith('e4a-')?'E4A':match.link.id.startsWith('e4-')?'E4':'C4';
@@ -208,10 +212,14 @@ function render(match, accuracy, statusText='') {
   $('status-message').textContent=statusText||`GPS精度 ±${Math.round(accuracy)}m`;
   $('gps-dot').classList.add('active');
   $('speed').textContent=`${Math.round(match.speed*3.6)} km/h`;
-  $('point-list').replaceChildren(...slots.map((item) => {
+  const createCard=(item, compact=false) => {
     if(!item) {const empty=document.createElement('div');empty.className='empty-slot';return empty;}
     const displayKinds=[...(item.kinds||[item.kind])].sort((a,b)=>(a==='SA'||a==='PA'?-1:0)-(b==='SA'||b==='PA'?-1:0));
-    const article=document.createElement('article');article.className=`live-card kind-${item.kind.toLowerCase()}`;
+    const article=document.createElement('article');article.className=`live-card kind-${item.kind.toLowerCase()}${compact?' compact-card':''}`;
+    if(compact) {
+      article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name"><span>${item.name}</span></strong></div><div class="compact-metrics"><b>${(Math.max(0,item.remaining)/1000).toFixed(1)}<small>km</small></b><b>${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b></div>`;
+      return article;
+    }
     const visibleBrands=item.brands.filter(brand=>displayedBrands.has(brand));
     const branded=new Set(visibleBrands.flatMap(brand=>['starbucks','tullys','doutor'].includes(brand)?['cafe']:['sevenEleven','lawson','familyMart','gooz','ministop'].includes(brand)?['convenienceStore']:['yoshinoya','matsuya','sukiya'].includes(brand)?['restaurant']:[]));
     const brands=visibleBrands.map(brand=>`<b class="brand-badge brand-${brand}">${brandLabels[brand]}</b>`);
@@ -219,8 +227,21 @@ function render(match, accuracy, statusText='') {
     const facilities=[...brands,...icons].join('');
     article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name"><span>${item.name}</span>${item.romanizedName?`<small>${item.romanizedName}</small>`:''}</strong></div><div class="live-details${facilities?'':' no-facilities'}">${facilities?`<div class="facility-row">${facilities}</div>`:''}<div class="live-metrics"><b class="arrival-time">${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b><b class="next-distance">${(Math.max(0,item.remaining)/1000).toFixed(1)}<small>km</small></b></div></div>`;
     return article;
-  }));
+  };
+  if(landscape) {
+    const primary=upcoming.slice(0,3).reverse();
+    const compact=upcoming.slice(3,7).reverse();
+    const compactColumn=document.createElement('div');compactColumn.className='landscape-column compact-column';compactColumn.replaceChildren(...compact.map(item=>createCard(item,true)));
+    const primaryColumn=document.createElement('div');primaryColumn.className='landscape-column primary-column';primaryColumn.replaceChildren(...primary.map(item=>createCard(item)));
+    $('point-list').replaceChildren(compactColumn,primaryColumn);
+  } else {
+    $('point-list').replaceChildren(...slots.map(item=>createCard(item)));
+  }
 }
+
+window.addEventListener('resize',()=>{
+  if(lastRenderArgs) render(lastRenderArgs.match,lastRenderArgs.accuracy,lastRenderArgs.statusText);
+});
 
 function regionFor(latitude, longitude) {
   return manifest?.regions.find(({bounds}) => latitude>=bounds.south && latitude<=bounds.north && longitude>=bounds.west && longitude<=bounds.east) || null;
