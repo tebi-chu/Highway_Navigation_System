@@ -17,6 +17,7 @@ SOURCES = [
     ROOT / "data-osm-e4.json",
     ROOT / "data-osm-e4-route.json",
     ROOT / "data-osm-e4a.json",
+    ROOT / "data-osm-ramps.json",
 ]
 DESTINATION = ROOT / "web" / "data" / "ebina-aomori.json"
 
@@ -227,7 +228,63 @@ def route(graph, coordinates, start, end):
     while nodes[-1] in previous:
         nodes.append(previous[nodes[-1]])
     nodes.reverse()
-    return [coordinates[node] for node in nodes], distances[destination]
+    return [coordinates[node] for node in nodes], distances[destination], nodes
+
+
+def motorway_links(elements):
+    """Return ramp geometry used to locate the actual mainline divergence."""
+    result = []
+    for element in elements:
+        tags = element.get("tags", {})
+        geometry = element.get("geometry", [])
+        nodes = element.get("nodes", [])
+        if (
+            element.get("type") == "way"
+            and tags.get("highway") == "motorway_link"
+            and len(nodes) == len(geometry)
+            and geometry
+        ):
+            result.append({
+                "nodes": nodes,
+                "coordinates": [(item["lat"], item["lon"]) for item in geometry],
+                "label": " ".join(str(value) for key, value in tags.items() if key in {
+                    "name", "name:ja", "destination", "destination:ref", "junction:ref"
+                }),
+            })
+    return result
+
+
+def exit_branch_offset(name, coordinate, route_points, ramps, centre_offset):
+    """Find the outbound ramp split from the mainline before a named point."""
+    candidates = []
+    for ramp in ramps:
+        proximity = min(distance(coordinate, item) for item in ramp["coordinates"])
+        if proximity > 1_800:
+            continue
+        label_names = [normalize_name(part) for part in re.split(r"[;:/]", ramp["label"]) if part.strip()]
+        named = any(name == label or name in label or label in name for label in label_names if label)
+        # OSM motorway_link geometry follows its driving direction. Its first
+        # vertices identify an exit split; the final vertices usually identify
+        # an entrance merge and must not be used as the countdown target.
+        for connection in ramp["coordinates"][:4]:
+            lateral, offset = project(connection, route_points)
+            # The shipped route uses one geometric carriageway for both travel
+            # directions; accept the parallel carriageway and its exit ramp.
+            if lateral <= 60 and abs(offset - centre_offset) <= 2_000:
+                candidates.append((named, offset, proximity))
+    if not candidates:
+        return centre_offset
+    named_candidates = [item for item in candidates if item[0]]
+    pool = named_candidates or candidates
+    # In either travel direction the departure ramp normally splits shortly
+    # before the facility centre. Prefer that split over the later merge ramp.
+    before = [item for item in pool if item[1] <= centre_offset]
+    if not before and named_candidates:
+        before = [item for item in candidates if item[1] <= centre_offset]
+    if not before:
+        return centre_offset
+    chosen = max(before, key=lambda item: item[1])
+    return chosen[1]
 
 
 def center(element):
@@ -243,6 +300,14 @@ def normalize_name(value):
     value = value.split(";")[0].split(":")[0].strip()
     value = re.sub(r"(スマート)?(IC|JCT|SA|PA)$", "", value, flags=re.IGNORECASE)
     return value.rstrip(" /・").strip()
+
+
+def direction_hint(value):
+    normalized = unicodedata.normalize("NFKC", value)
+    for label in ("上り", "下り", "内回り", "外回り", "内廻り", "外廻り"):
+        if label in normalized:
+            return {"内廻り": "内回り", "外廻り": "外回り"}.get(label, label)
+    return None
 
 
 def point_kind(name):
@@ -319,10 +384,11 @@ def build():
         ("c4-south", "c4", "首都圏中央連絡自動車道", "内回り", "海老名方面", "kuki", "ebina", None),
     ]
 
+    ramps = motorway_links(elements)
     links, raw_routes = [], {}
     for link_id, graph_id, highway, direction, destination, start, end, next_id in definitions:
         graph, coordinates = graphs[graph_id]
-        route_points, detailed_length = route(graph, coordinates, anchors[start], anchors[end])
+        route_points, detailed_length, route_nodes = route(graph, coordinates, anchors[start], anchors[end])
         display_route = simplify(route_points)
         # The browser map matcher measures progress along the shipped polyline.
         # Project targets and calculate link length against that exact same
@@ -353,14 +419,20 @@ def build():
         english = romanized_parts(tags.get("name:en"))
         for index, (normalized_name, kind) in enumerate(names):
             romanized = english[min(index, len(english) - 1)] if english else ROMAJI_FALLBACKS.get(normalized_name)
-            candidates.append((element["id"], normalized_name, kind, coordinate, romanized))
-    candidates.extend(VERIFIED_ROUTE_POINTS)
+            candidates.append((element["id"], normalized_name, kind, coordinate, romanized, direction_hint(name)))
+    candidates.extend((*item, None) for item in VERIFIED_ROUTE_POINTS)
 
     points = []
     for link in links:
         route_points = raw_routes[link["id"]]
         selected = {}
-        for source_id, source_name, kind, coordinate, romanized in candidates:
+        accepted_direction = {
+            "c4-north": "外回り", "c4-south": "内回り",
+            "e4-north": "下り", "e4-south": "上り",
+        }.get(link["id"])
+        for source_id, source_name, kind, coordinate, romanized, point_direction in candidates:
+            if kind in {"SA", "PA"} and point_direction and point_direction != accepted_direction:
+                continue
             lateral, offset = project(coordinate, route_points)
             if lateral > (900 if kind in {"SA", "PA"} else 350):
                 continue
@@ -370,6 +442,11 @@ def build():
                 continue
             selected[key] = lateral, offset, source_id, romanized
         for (name, kind), (_, offset, source_id, romanized) in selected.items():
+            source_coordinate = next(
+                item[3] for item in candidates
+                if item[0] == source_id and normalize_name(item[1]) == name and item[2] == kind
+            )
+            offset = exit_branch_offset(name, source_coordinate, route_points, ramps, offset)
             points.append({
                 "id": f"{link['id']}-{source_id}",
                 "name": name,

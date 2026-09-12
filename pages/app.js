@@ -120,7 +120,14 @@ function matchPosition(position) {
   const candidates=links.map(link=>{
     const candidate=nearest(link,coordinate);
     const angle=Math.abs(((candidate.bearing-heading+540)%360)-180);
-    return {link,...candidate,score:candidate.distance+(moving?angle*12:0)};
+    let continuityPenalty=0;
+    if(estimatedMatch?.link?.id===link.id && lastGoodGpsAt) {
+      const elapsed=Math.max(0,(Date.now()-lastGoodGpsAt)/1000);
+      const expected=estimatedMatch.offset+lastReliableSpeed*elapsed;
+      const tolerance=Math.max(120,(position.coords.accuracy||0)*2,lastReliableSpeed*elapsed+60);
+      continuityPenalty=Math.max(0,Math.abs(candidate.offset-expected)-tolerance)*4;
+    }
+    return {link,...candidate,score:candidate.distance+(moving?angle*12:0)+continuityPenalty};
   }).sort((a,b)=>a.score-b.score);
   if(!candidates[0] || candidates[0].distance>1500) return null;
   return {...candidates[0],speed:Math.max(0,position.coords.speed||0)};
