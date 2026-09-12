@@ -56,18 +56,29 @@ FUEL_AREAS = {
 # nodes, so these verified OSM points keep the test corridor complete even when
 # a source response omits nearby objects.
 VERIFIED_ROUTE_POINTS = [
-    (727603736, "一関IC", "IC", (38.9404949, 141.1022330)),
-    (9121432197, "平泉スマートIC", "IC", (38.9776074, 141.1106942)),
-    (1210623456, "中尊寺PA", "PA", (38.9785981, 141.1101036)),
-    (946778198, "水沢IC", "IC", (39.1671421, 141.1173226)),
-    (471302071, "花巻IC", "IC", (39.4412830, 141.1084610)),
-    (1022661265, "紫波SA", "SA", (39.5110307, 141.1016950)),
-    (679760697, "紫波IC", "IC", (39.5589908, 141.1169687)),
-    (218548250, "矢巾PA", "PA", (39.6146980, 141.1295999)),
-    (7142509462, "矢巾スマートIC", "IC", (39.6176069, 141.1296931)),
-    (666473795, "盛岡南IC", "IC", (39.6556142, 141.1210463)),
-    (670889262, "滝沢IC", "IC", (39.7938140, 141.1121836)),
+    (727603736, "一関IC", "IC", (38.9404949, 141.1022330), "Ichinoseki"),
+    (9121432197, "平泉スマートIC", "IC", (38.9776074, 141.1106942), "Hiraizumi"),
+    (1210623456, "中尊寺PA", "PA", (38.9785981, 141.1101036), "Chusonji"),
+    (946778198, "水沢IC", "IC", (39.1671421, 141.1173226), "Mizusawa"),
+    (471302071, "花巻IC", "IC", (39.4412830, 141.1084610), "Hanamaki"),
+    (1022661265, "紫波SA", "SA", (39.5110307, 141.1016950), "Shiwa"),
+    (679760697, "紫波IC", "IC", (39.5589908, 141.1169687), "Shiwa"),
+    (218548250, "矢巾PA", "PA", (39.6146980, 141.1295999), "Yahaba"),
+    (7142509462, "矢巾スマートIC", "IC", (39.6176069, 141.1296931), "Yahaba"),
+    (666473795, "盛岡南IC", "IC", (39.6556142, 141.1210463), "Morioka-minami"),
+    (670889262, "滝沢IC", "IC", (39.7938140, 141.1121836), "Takizawa"),
 ]
+
+ROMAJI_FALLBACKS = {
+    "日の出": "Hinode", "八王子": "Hachioji", "八王子西": "Hachioji-nishi",
+    "相模原": "Sagamihara", "相模原愛川": "Sagamihara-Aikawa", "鶴ヶ島": "Tsurugashima",
+    "白岡菖蒲": "Shiraoka-Shobu", "阿武隈": "Abukuma", "阿闍羅": "Ajara",
+    "安積": "Asaka", "安達太良": "Adatara", "鏡石": "Kagamiishi",
+    "郡山中央": "Koriyama-chuo", "高舘": "Takadate", "黒磯": "Kuroiso",
+    "黒磯板室": "Kuroiso-Itamuro", "滝沢中央": "Takizawa-chuo",
+    "栃木都賀": "Tochigi-Tsuga", "那須高原": "Nasu-kogen", "白河中央": "Shirakawa-chuo",
+    "福島松川": "Fukushima-Matsukawa", "平泉": "Hiraizumi", "矢板北": "Yaita-kita", "桑折": "Kori",
+}
 
 
 def facilities_for(link_id, name, kind):
@@ -256,6 +267,19 @@ def point_names(value):
     return list(dict.fromkeys(expanded))
 
 
+def romanized_parts(value):
+    if not value:
+        return []
+    parts = [part.strip() for part in re.split(r"[;:]", value) if part.strip()]
+    result = []
+    for part in parts:
+        part = re.sub(r"\s*\([^)]*\)", "", part)
+        part = re.sub(r"\s+(Parking|Service) Area$", "", part, flags=re.IGNORECASE)
+        part = re.sub(r"\s*(Smart|SIC|IC|JCT|SA|PA)$", "", part, flags=re.IGNORECASE)
+        result.append(part.strip(" /.-"))
+    return result
+
+
 def coordinates_json(route_points):
     return [{"latitude": round(lat, 7), "longitude": round(lon, 7)} for lat, lon in route_points]
 
@@ -317,15 +341,18 @@ def build():
         name = tags.get("name")
         if not name or coordinate is None:
             continue
-        for normalized_name, kind in point_names(name):
-            candidates.append((element["id"], normalized_name, kind, coordinate))
+        names = point_names(name)
+        english = romanized_parts(tags.get("name:en"))
+        for index, (normalized_name, kind) in enumerate(names):
+            romanized = english[min(index, len(english) - 1)] if english else ROMAJI_FALLBACKS.get(normalized_name)
+            candidates.append((element["id"], normalized_name, kind, coordinate, romanized))
     candidates.extend(VERIFIED_ROUTE_POINTS)
 
     points = []
     for link in links:
         route_points = raw_routes[link["id"]]
         selected = {}
-        for source_id, source_name, kind, coordinate in candidates:
+        for source_id, source_name, kind, coordinate, romanized in candidates:
             lateral, offset = project(coordinate, route_points)
             if lateral > (900 if kind in {"SA", "PA"} else 350):
                 continue
@@ -333,14 +360,15 @@ def build():
             key = name, kind
             if not name or (key in selected and selected[key][0] <= lateral):
                 continue
-            selected[key] = lateral, offset, source_id
-        for (name, kind), (_, offset, source_id) in selected.items():
+            selected[key] = lateral, offset, source_id, romanized
+        for (name, kind), (_, offset, source_id, romanized) in selected.items():
             points.append({
                 "id": f"{link['id']}-{source_id}",
                 "name": name,
                 "kind": kind,
                 "linkID": link["id"],
                 "offsetMeters": round(offset, 1),
+                "romanizedName": romanized or ROMAJI_FALLBACKS.get(name, ""),
                 "facilities": facilities_for(link["id"], name, kind),
                 "brands": BRANDS.get((link["id"], name), []) if kind in {"SA", "PA"} else [],
             })

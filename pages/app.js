@@ -142,7 +142,32 @@ function findUpcoming(match) {
   for(const item of results.sort((a,b)=>a.remaining-b.remaining)) {
     if(!unique.some(existing=>existing.name===item.name && existing.kind===item.kind && Math.abs(existing.remaining-item.remaining)<500))unique.push(item);
   }
-  return unique.slice(0,5);
+  const merged=[];
+  const baseName=name=>name.replace(/(?:PA|SA)?スマート$/,'').replace(/(?:PA|SA)$/,'');
+  for(const item of unique) {
+    const kinds=new Set([item.kind]);
+    const partner=merged.find(existing=>{
+      const combined=new Set([...(existing.kinds||[existing.kind]),...kinds]);
+      return existing.linkID===item.linkID && baseName(existing.name)===baseName(item.name)
+        && Math.abs(existing.remaining-item.remaining)<600
+        && combined.has('IC') && (combined.has('PA')||combined.has('SA'));
+    });
+    if(!partner) {
+      merged.push({...item,kinds:[item.kind]});
+      continue;
+    }
+    partner.kinds=[...new Set([...partner.kinds,item.kind])];
+    partner.facilities=[...new Set([...(partner.facilities||[]),...(item.facilities||[])])];
+    partner.brands=[...new Set([...(partner.brands||[]),...(item.brands||[])])];
+    const area=[partner,item].find(point=>point.kind==='PA'||point.kind==='SA');
+    if(area) {
+      partner.kind=area.kind;
+      partner.name=baseName(area.name);
+      partner.romanizedName=area.romanizedName||partner.romanizedName;
+    }
+    partner.remaining=Math.min(partner.remaining,item.remaining);
+  }
+  return merged.slice(0,5);
 }
 
 function advanceMatch(match, distanceMeters) {
@@ -185,13 +210,14 @@ function render(match, accuracy, statusText='') {
   $('speed').textContent=`${Math.round(match.speed*3.6)} km/h`;
   $('point-list').replaceChildren(...slots.map((item) => {
     if(!item) {const empty=document.createElement('div');empty.className='empty-slot';return empty;}
+    const displayKinds=[...(item.kinds||[item.kind])].sort((a,b)=>(a==='SA'||a==='PA'?-1:0)-(b==='SA'||b==='PA'?-1:0));
     const article=document.createElement('article');article.className=`live-card kind-${item.kind.toLowerCase()}`;
     const visibleBrands=item.brands.filter(brand=>displayedBrands.has(brand));
     const branded=new Set(visibleBrands.flatMap(brand=>['starbucks','tullys','doutor'].includes(brand)?['cafe']:['sevenEleven','lawson','familyMart'].includes(brand)?['convenienceStore']:[]));
     const brands=visibleBrands.map(brand=>`<b class="brand-badge brand-${brand}">${brandLabels[brand]}</b>`);
     const icons=item.facilities.filter(facility=>displayedFacilities.has(facility)&&!branded.has(facility)).map(facility=>`<span class="facility-icon" title="${facilityLabels[facility]||''}">${facilityIcons[facility]||''}</span>`);
     const facilities=[...brands,...icons].join('');
-    article.innerHTML=`<div class="live-title"><span>${item.kind}</span><strong>${item.name}</strong></div><div class="live-details${facilities?'':' no-facilities'}">${facilities?`<div class="facility-row">${facilities}</div>`:''}<div class="live-metrics"><b class="arrival-time">${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b><b class="next-distance">${(Math.max(0,item.remaining)/1000).toFixed(1)}<small>km</small></b></div></div>`;
+    article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name"><span>${item.name}</span>${item.romanizedName?`<small>${item.romanizedName}</small>`:''}</strong></div><div class="live-details${facilities?'':' no-facilities'}">${facilities?`<div class="facility-row">${facilities}</div>`:''}<div class="live-metrics"><b class="arrival-time">${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b><b class="next-distance">${(Math.max(0,item.remaining)/1000).toFixed(1)}<small>km</small></b></div></div>`;
     return article;
   }));
 }
@@ -278,6 +304,16 @@ async function startNavigation() {
     manifest=await response.json();
   } catch {
     $('status-message').textContent='道路データを読み込めません。'; return;
+  }
+  if((location.hostname==='127.0.0.1'||location.hostname==='localhost') && new URLSearchParams(location.search).has('preview')) {
+    const region=manifest.regions[0];
+    const response=await fetch(region.file);
+    const data=await response.json();
+    links=data.links;points=data.points;loadedRegion=region.id;
+    const link=links.find(item=>item.id==='e4-north');
+    const sanbongi=points.find(item=>item.linkID==='e4-north'&&item.name==='三本木'&&item.kind==='PA');
+    render({link,offset:sanbongi.offsetMeters-1500,speed:27.8},8,'サンプル表示');
+    return;
   }
   if(!navigator.geolocation) {$('status-message').textContent='このブラウザは位置情報に対応していません。';return;}
   wakeLockMonitorTimer=setInterval(()=>requestWakeLock(),15000);
