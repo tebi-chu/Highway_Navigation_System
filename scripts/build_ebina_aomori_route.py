@@ -29,6 +29,7 @@ ROADS = {
 # Direction-specific brands verified against NEXCO East's Drive Plaza pages.
 # Values are internal badge identifiers; no corporate logo artwork is bundled.
 BRANDS = {
+    ("c4-south", "狭山"): ["gooz"],
     ("e4-north", "羽生"): ["starbucks"],
     ("e4-north", "佐野"): ["starbucks"],
     ("e4-north", "吾妻"): ["familyMart", "apollostation"],
@@ -39,6 +40,10 @@ BRANDS = {
     ("e4-south", "津軽"): ["familyMart"],
     ("e4-north", "安積"): ["eneos"],
     ("e4-south", "安積"): ["eneos"],
+    ("e4-north", "鏡石"): ["ministop"],
+    ("e4-south", "鏡石"): ["ministop"],
+    ("e4-north", "花輪"): ["matsuya"],
+    ("e4-south", "花輪"): ["matsuya"],
 }
 
 MANNED_PA = {
@@ -86,7 +91,10 @@ def facilities_for(link_id, name, kind):
         return []
     facilities = ["restroom", "accessibility"]
     brands = BRANDS.get((link_id, name), [])
-    is_convenience = any(brand in {"sevenEleven", "familyMart"} for brand in brands)
+    is_convenience = any(
+        brand in {"sevenEleven", "familyMart", "lawson", "gooz", "ministop"}
+        for brand in brands
+    )
     if kind == "SA" and not is_convenience:
         facilities.extend(["restaurant", "cafe", "evCharging"])
     elif kind == "SA":

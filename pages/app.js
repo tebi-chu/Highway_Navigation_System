@@ -1,17 +1,17 @@
 const config = window.HIGHWAY_ASSIST_CONFIG || {};
 const facilityLabels = {restaurant:'食事',fuel:'ガソリンスタンド',convenienceStore:'コンビニ',cafe:'カフェ',hotSpring:'温泉',shower:'シャワー',viewArea:'ビューエリア'};
 const facilityIcons = {
-  restaurant:'<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 2v11m4-11v11M8 2v28m13-28c-4 5-5 11-3 16h3v12m0-28v16"/></svg>',
-  convenienceStore:'<svg viewBox="0 0 36 32" aria-hidden="true"><path d="M4 12h28v18H4V12ZM2 4h32l-3 8H5L2 4Zm8 8v18m16-18v18M14 20h8"/></svg>',
-  cafe:'<svg viewBox="0 0 36 32" aria-hidden="true"><path d="M5 11h22v8c0 6-4 10-11 10S5 25 5 19v-8Zm22 3h3c5 0 5 8 0 8h-4M10 2c-3 3 3 4 0 7m7-7c-3 3 3 4 0 7"/></svg>',
-  fuel:'<svg viewBox="0 0 38 32" aria-hidden="true"><path d="M3 3h20v27H3V3Zm4 4h12v9H7V7Zm16 5 5 3v11c0 5 7 5 7 0V10l-4-5m-8 15h6"/></svg>',
-  hotSpring:'<svg viewBox="0 0 38 32" aria-hidden="true"><path d="M8 3c-4 4 4 6 0 10m10-10c-4 4 4 6 0 10m10-10c-4 4 4 6 0 10M3 18c5 3 9 3 14 0 5 3 9 3 18 0v10H3V18Z"/></svg>',
-  shower:'<svg viewBox="0 0 38 32" aria-hidden="true"><path d="M5 14a10 10 0 0 1 20-2m-4-4 8 8-12 2 4-10Z"/><path d="M20 21v2m6-4v2m-1 5v2m6-8v2m0 5v2"/></svg>',
-  viewArea:'<svg viewBox="0 0 40 32" aria-hidden="true"><path d="m2 27 9-13 7 8 6-10 14 15H2ZM7 8h26M12 4v8m16-8v8"/></svg>',
+  restaurant:'<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M5 3h3v11h2V3h3v11h2V3h3v12c0 3-2 6-5 7v15H9V22c-3-1-4-4-4-7V3Zm25 0c-6 6-8 14-7 23h4v11h5V3h-2Z"/></svg>',
+  convenienceStore:'<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M4 5h32l-3 10H7L4 5Zm3 13h26v19H7V18Zm5 5v14h7V23h-7Zm11 0v7h6v-7h-6Z"/></svg>',
+  cafe:'<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M7 14h24v10c0 7-5 11-12 11S7 31 7 24V14Zm24 3v5h2c3 0 3-5 0-5h-2ZM10 38h23v-3H10v3ZM13 3c-4 4 3 5 0 9h3c4-4-3-5 0-9h-3Zm8 0c-4 4 3 5 0 9h3c4-4-3-5 0-9h-3Z"/></svg>',
+  fuel:'<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M4 3h22v34H4V3Zm5 5v10h12V8H9Zm20 5 5 4v14c0 2 3 2 3 0V13l-4-5 2-2 5 6v19c0 7-10 7-10 0V20h-4v-4h3v-3Z"/></svg>',
+  hotSpring:'<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M8 3c-6 6 5 8 0 15h5c6-7-5-9 0-15H8Zm10 0c-6 6 5 8 0 15h5c6-7-5-9 0-15h-5Zm10 0c-6 6 5 8 0 15h5c6-7-5-9 0-15h-5ZM3 23c5 0 6 3 11 3s6-3 11-3 7 3 12 3v11H3V23Z"/></svg>',
+  shower:'<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M4 17C4 9 10 3 18 3c6 0 11 3 13 8l-4 2c-2-4-5-6-9-6-6 0-10 4-10 10H4Zm23-5 9 9-17 3 8-12Zm-5 15a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm7-2a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm7-1a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm-10 10a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm8-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"/></svg>',
+  viewArea:'<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M5 8h8l3 7h8l3-7h8l4 25H25v-7H15v7H1L5 8Zm5 9a6 6 0 1 0 0 12 6 6 0 0 0 0-12Zm20 0a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z"/></svg>',
 };
 const displayedFacilities = new Set(['restaurant','convenienceStore','cafe','fuel','hotSpring','shower','viewArea']);
-const displayedBrands = new Set(['starbucks','tullys','doutor','sevenEleven','lawson','familyMart']);
-const brandLabels = {starbucks:'STARBUCKS',tullys:"TULLY'S",doutor:'DOUTOR',sevenEleven:'7-ELEVEN',lawson:'LAWSON',familyMart:'FamilyMart'};
+const displayedBrands = new Set(['starbucks','tullys','doutor','sevenEleven','lawson','familyMart','gooz','ministop','yoshinoya','matsuya','sukiya']);
+const brandLabels = {starbucks:'STARBUCKS',tullys:"TULLY'S",doutor:'DOUTOR',sevenEleven:'7-ELEVEN',lawson:'LAWSON',familyMart:'FamilyMart',gooz:'gooz!',ministop:'ミニストップ',yoshinoya:'吉野家',matsuya:'松屋',sukiya:'すき家'};
 let links = [], points = [], watchId = null, manifest = null, loadedRegion = null;
 let wakeLock = null, navigationActive = false, estimateTimer = null;
 let wakeLockRetryTimer = null, wakeLockMonitorTimer = null, wakeLockRequestPending = false;
@@ -213,7 +213,7 @@ function render(match, accuracy, statusText='') {
     const displayKinds=[...(item.kinds||[item.kind])].sort((a,b)=>(a==='SA'||a==='PA'?-1:0)-(b==='SA'||b==='PA'?-1:0));
     const article=document.createElement('article');article.className=`live-card kind-${item.kind.toLowerCase()}`;
     const visibleBrands=item.brands.filter(brand=>displayedBrands.has(brand));
-    const branded=new Set(visibleBrands.flatMap(brand=>['starbucks','tullys','doutor'].includes(brand)?['cafe']:['sevenEleven','lawson','familyMart'].includes(brand)?['convenienceStore']:[]));
+    const branded=new Set(visibleBrands.flatMap(brand=>['starbucks','tullys','doutor'].includes(brand)?['cafe']:['sevenEleven','lawson','familyMart','gooz','ministop'].includes(brand)?['convenienceStore']:['yoshinoya','matsuya','sukiya'].includes(brand)?['restaurant']:[]));
     const brands=visibleBrands.map(brand=>`<b class="brand-badge brand-${brand}">${brandLabels[brand]}</b>`);
     const icons=item.facilities.filter(facility=>displayedFacilities.has(facility)&&!branded.has(facility)).map(facility=>`<span class="facility-icon" title="${facilityLabels[facility]||''}">${facilityIcons[facility]||''}</span>`);
     const facilities=[...brands,...icons].join('');
