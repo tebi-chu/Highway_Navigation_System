@@ -1,0 +1,13 @@
+{
+  "name": "highway-facility-sync",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "deploy": "wrangler deploy",
+    "db:migrate:remote": "wrangler d1 execute highway-facility-sync --remote --file=schema.sql"
+  },
+  "devDependencies": {
+    "wrangler": "4.92.0"
+  }
+}

@@ -1,0 +1,16 @@
+name = "highway-facility-sync"
+main = "src/index.js"
+compatibility_date = "2026-09-13"
+
+[triggers]
+crons = ["17 3 * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "highway-facility-sync"
+database_id = "ここをCloudflareのDatabase IDに変更"
+
+[vars]
+ALLOWED_ORIGINS = "https://tebi-chu.github.io,http://127.0.0.1:4173,http://localhost:4173"
+GOOGLE_CLIENT_ID = "ここをGoogleのクライアントIDに変更"
+EDITOR_EMAILS = "登録者1@gmail.com,登録者2@gmail.com"

@@ -30,6 +30,8 @@ jobs:
       - name: PINを確認して静的アプリを作成
         env:
           PAGES_PIN: ${{ secrets.PAGES_PIN }}
+          PAGES_API_BASE_URL: ${{ vars.PAGES_API_BASE_URL }}
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
         run: node pages/build-pages.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

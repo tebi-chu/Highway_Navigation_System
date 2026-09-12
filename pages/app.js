@@ -12,12 +12,16 @@ const facilityIcons = {
 const displayedFacilities = new Set(['restaurant','convenienceStore','cafe','fuel','hotSpring','shower','viewArea']);
 const displayedBrands = new Set(['starbucks','tullys','doutor','sevenEleven','lawson','familyMart','gooz','ministop','yoshinoya','matsuya','sukiya']);
 const brandLabels = {starbucks:'STARBUCKS',tullys:"TULLY'S",doutor:'DOUTOR',sevenEleven:'7-ELEVEN',lawson:'LAWSON',familyMart:'FamilyMart',gooz:'gooz!',ministop:'ミニストップ',yoshinoya:'吉野家',matsuya:'松屋',sukiya:'すき家'};
+const editableFacilities=['restaurant','convenienceStore','cafe','fuel','hotSpring','shower','viewArea'];
+const editableBrands=['starbucks','tullys','doutor','sevenEleven','lawson','familyMart','gooz','ministop','yoshinoya','matsuya','sukiya'];
 let links = [], points = [], watchId = null, manifest = null, loadedRegion = null;
 let wakeLock = null, navigationActive = false, estimateTimer = null;
 let wakeLockRetryTimer = null, wakeLockMonitorTimer = null, wakeLockRequestPending = false;
 let estimatedMatch = null, lastGoodGpsAt = 0, estimateTickAt = 0, lastAccuracy = 0, lastReliableSpeed = 0;
 let lastGoodCoordinate = null, lastGoodCoordinateAt = 0;
 let lastRenderArgs = null;
+let currentEditPoint = null, editorToken = sessionStorage.getItem('highway-editor-token')||'';
+let overrideRefreshTimer = null;
 const GPS_ACCURACY_LIMIT_METERS = 100;
 const GPS_SILENCE_BEFORE_ESTIMATE_MS = 3000;
 const MAX_ESTIMATE_DURATION_MS = 15*60*1000;
@@ -75,6 +79,7 @@ document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState==='visible') {
     requestWakeLock();
     refreshLocationAfterResume();
+    syncOverrides();
   }
 });
 document.addEventListener('pointerdown',()=>requestWakeLock(),{passive:true});
@@ -94,6 +99,105 @@ $('pin-form').addEventListener('submit', async (event) => {
   }
   localStorage.setItem('highway-assist-login', `${config.pinHash}:${Date.now()+7*24*60*60*1000}`);
   showNavigation();
+});
+
+function apiUrl(path) {
+  return `${String(config.apiBaseUrl||'').replace(/\/$/,'')}${path}`;
+}
+
+function applyOverrides(overrides) {
+  const byID=new Map(overrides.map(item=>[item.pointId,item]));
+  for(const point of points) {
+    const override=byID.get(point.id);
+    if(override) {
+      point.facilities=[...override.facilities];
+      point.brands=[...override.brands];
+    }
+  }
+  if(lastRenderArgs)render(lastRenderArgs.match,lastRenderArgs.accuracy,lastRenderArgs.statusText);
+}
+
+async function syncOverrides() {
+  const cached=localStorage.getItem('highway-facility-overrides');
+  if(cached)try{applyOverrides(JSON.parse(cached));}catch{}
+  if(!config.apiBaseUrl||!points.length)return;
+  try {
+    const roadIDs=[...new Set(points.map(point=>point.linkID))];
+    const batches=await Promise.all(roadIDs.map(async roadID=>{
+      const response=await fetch(apiUrl(`/v1/overrides?roadId=${encodeURIComponent(roadID)}`));
+      if(!response.ok)throw new Error();
+      return (await response.json()).overrides;
+    }));
+    const fresh=batches.flat();
+    const freshRoads=new Set(roadIDs);
+    let retained=[];
+    if(cached)try{retained=JSON.parse(cached).filter(item=>!freshRoads.has(item.roadId));}catch{}
+    const combined=[...retained,...fresh];
+    localStorage.setItem('highway-facility-overrides',JSON.stringify(combined));
+    applyOverrides(combined);
+  } catch {}
+}
+
+function anonymousDeviceID() {
+  let id=localStorage.getItem('highway-edit-device-id');
+  if(!id) {
+    id=crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem('highway-edit-device-id',id);
+  }
+  return id;
+}
+
+function addLongPress(article,item) {
+  if(!['SA','PA'].includes(item.kind))return;
+  let timer=null,moved=false,startX=0,startY=0;
+  article.classList.add('editable-card');
+  article.addEventListener('pointerdown',event=>{moved=false;startX=event.clientX;startY=event.clientY;timer=setTimeout(()=>{timer=null;if(!moved)openFacilityEditor(item,false);},700);});
+  article.addEventListener('pointermove',event=>{if(Math.hypot(event.clientX-startX,event.clientY-startY)<=12)return;moved=true;if(timer)clearTimeout(timer);timer=null;});
+  for(const event of ['pointerup','pointercancel','pointerleave'])article.addEventListener(event,()=>{if(timer)clearTimeout(timer);timer=null;});
+  article.addEventListener('contextmenu',event=>event.preventDefault());
+}
+
+function optionMarkup(values,labels,selected) {
+  return values.map(value=>`<label><input type="checkbox" value="${value}" ${selected.includes(value)?'checked':''}><span>${labels[value]||brandLabels[value]||value}</span></label>`).join('');
+}
+
+function openFacilityEditor(item,privileged) {
+  if(!privileged&&lastReliableSpeed*3.6>=10) {
+    $('status-message').textContent='安全な場所に停車してから施設情報を編集してください。';
+    return;
+  }
+  if(!config.apiBaseUrl) {
+    $('status-message').textContent='共通編集機能はCloudflareの初期設定後に利用できます。';
+    return;
+  }
+  currentEditPoint=item;
+  $('edit-kinds').textContent=(item.kinds||[item.kind]).join('・');
+  $('edit-name').textContent=item.name;
+  $('edit-mode').textContent=privileged?'Google登録編集者モード（連続編集可能）':'一般編集モード（1時間に5回まで）';
+  $('facility-options').innerHTML=optionMarkup(editableFacilities,facilityLabels,item.facilities||[]);
+  $('brand-options').innerHTML=optionMarkup(editableBrands,brandLabels,item.brands||[]);
+  $('edit-error').textContent='';
+  $('facility-dialog').showModal();
+}
+
+$('edit-close').addEventListener('click',()=>$('facility-dialog').close());
+$('facility-form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  if(!currentEditPoint)return;
+  $('edit-save').disabled=true;$('edit-error').textContent='保存しています…';
+  const checked=id=>[...$(id).querySelectorAll('input:checked')].map(input=>input.value);
+  try {
+    const headers={'content-type':'application/json','x-highway-device-id':anonymousDeviceID()};
+    if(editorToken)headers.authorization=`Bearer ${editorToken}`;
+    const response=await fetch(apiUrl('/v1/overrides'),{method:'POST',headers,body:JSON.stringify({pointId:currentEditPoint.id,roadId:currentEditPoint.linkID,facilities:checked('facility-options'),brands:checked('brand-options')})});
+    const data=await response.json();
+    if(!response.ok)throw new Error(data.error||'保存できませんでした。');
+    currentEditPoint.facilities=[...data.facilities];currentEditPoint.brands=[...data.brands];
+    await syncOverrides();
+    $('facility-dialog').close();
+    if($('editor').hidden===false)renderEditorPreview();
+  } catch(error) {$('edit-error').textContent=error.message;}
+  finally {$('edit-save').disabled=false;}
 });
 
 function nearest(link, position) {
@@ -169,6 +273,7 @@ function findUpcoming(match) {
     partner.brands=[...new Set([...(partner.brands||[]),...(item.brands||[])])];
     const area=[partner,item].find(point=>point.kind==='PA'||point.kind==='SA');
     if(area) {
+      partner.id=area.id;
       partner.kind=area.kind;
       partner.name=baseName(area.name);
       partner.romanizedName=area.romanizedName||partner.romanizedName;
@@ -233,6 +338,7 @@ function render(match, accuracy, statusText='') {
     const icons=item.facilities.filter(facility=>displayedFacilities.has(facility)&&!branded.has(facility)).map(facility=>`<span class="facility-icon" title="${facilityLabels[facility]||''}">${facilityIcons[facility]||''}</span>`);
     const facilities=[...brands,...icons].join('');
     article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name"><span>${item.name}</span>${item.romanizedName?`<small>${item.romanizedName}</small>`:''}</strong></div><div class="live-details${facilities?'':' no-facilities'}">${facilities?`<div class="facility-row">${facilities}</div>`:''}<div class="live-metrics"><b class="arrival-time">${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b><b class="next-distance">${(Math.max(0,item.remaining)/1000).toFixed(1)}<small>km</small></b></div></div>`;
+    addLongPress(article,item);
     return article;
   };
   if(landscape) {
@@ -267,6 +373,7 @@ async function ensureRegion(position) {
   if(!response.ok) throw new Error('region data unavailable');
   const data=await response.json();
   links=data.links;points=data.points;loadedRegion=region.id;
+  await syncOverrides();
   return true;
 }
 
@@ -346,7 +453,99 @@ async function startNavigation() {
   if(!navigator.geolocation) {$('status-message').textContent='このブラウザは位置情報に対応していません。';return;}
   wakeLockMonitorTimer=setInterval(()=>requestWakeLock(),15000);
   estimateTimer=setInterval(()=>updateEstimatedPosition(),1000);
+  overrideRefreshTimer=setInterval(()=>syncOverrides(),5*60*1000);
   startLocationWatch();
 }
 
-if(authenticated()) showNavigation();
+function decodeGoogleEmail(token) {
+  try{return JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).email||'';}catch{return '';}
+}
+
+async function editorAuthenticated() {
+  if(!editorToken||!config.apiBaseUrl)return false;
+  try {
+    const response=await fetch(apiUrl('/v1/editor/status'),{headers:{authorization:`Bearer ${editorToken}`}});
+    if(!response.ok)throw new Error();
+    const data=await response.json();
+    $('editor-account').textContent=`登録編集者：${data.email}`;
+    $('editor-account').hidden=false;$('editor-logout').hidden=false;$('google-signin').hidden=true;$('editor-controls').hidden=false;
+    return true;
+  } catch {
+    editorToken='';sessionStorage.removeItem('highway-editor-token');return false;
+  }
+}
+
+$('editor-logout').addEventListener('click',()=>{
+  editorToken='';
+  sessionStorage.removeItem('highway-editor-token');
+  window.google?.accounts?.id?.disableAutoSelect();
+  $('editor-account').hidden=true;$('editor-logout').hidden=true;$('editor-controls').hidden=true;$('google-signin').hidden=false;
+  $('editor-setup').textContent='Google登録編集者としてログインしてください。';
+  $('google-signin').replaceChildren();
+  loadGoogleSignIn();
+});
+
+function loadGoogleSignIn() {
+  if(!config.googleClientId)return;
+  const initialize=()=>{
+    google.accounts.id.initialize({client_id:config.googleClientId,callback:async response=>{
+      editorToken=response.credential;sessionStorage.setItem('highway-editor-token',editorToken);
+      if(await editorAuthenticated())await loadEditorData();
+      else $('editor-setup').textContent='このGoogleアカウントには編集権限が登録されていません。';
+    }});
+    google.accounts.id.renderButton($('google-signin'),{theme:'outline',size:'large',text:'signin_with',locale:'ja'});
+  };
+  if(window.google?.accounts?.id){initialize();return;}
+  const script=document.createElement('script');script.src='https://accounts.google.com/gsi/client';script.async=true;script.onload=initialize;document.head.append(script);
+}
+
+async function loadEditorData() {
+  if(links.length&&points.length){populateEditorRoads();return;}
+  const manifestResponse=await fetch('data/manifest.json');manifest=await manifestResponse.json();
+  const datasets=await Promise.all(manifest.regions.map(region=>fetch(region.file).then(response=>response.json())));
+  links=datasets.flatMap(data=>data.links);points=datasets.flatMap(data=>data.points);
+  await syncOverrides();populateEditorRoads();
+}
+
+function populateEditorRoads() {
+  const select=$('editor-road');
+  select.replaceChildren(...links.map(link=>{
+    const option=document.createElement('option');option.value=link.id;option.textContent=`${link.highwayName}｜${link.directionName}・${link.destinationName}`;return option;
+  }));
+  refreshEditorPoints();
+}
+
+function refreshEditorPoints() {
+  const linkID=$('editor-road').value;
+  const list=points.filter(point=>point.linkID===linkID&&['SA','PA'].includes(point.kind)).sort((a,b)=>a.offsetMeters-b.offsetMeters);
+  $('editor-point').replaceChildren(...list.map(point=>{
+    const option=document.createElement('option');option.value=point.id;option.textContent=`${point.kind} ${point.name}`;return option;
+  }));
+  renderEditorPreview();
+}
+
+function selectedEditorPoint() {return points.find(point=>point.id===$('editor-point').value);}
+function renderEditorPreview() {
+  const point=selectedEditorPoint();if(!point){$('editor-preview').textContent='この方向にはSA・PAが登録されていません。';return;}
+  const facilities=(point.facilities||[]).filter(value=>editableFacilities.includes(value)).map(value=>facilityLabels[value]);
+  const brands=(point.brands||[]).filter(value=>editableBrands.includes(value)).map(value=>brandLabels[value]);
+  $('editor-preview').innerHTML=`<div><span>${point.kind}</span><strong>${point.name}</strong></div><p><b>設備</b>${facilities.join('、')||'なし'}</p><p><b>店舗</b>${brands.join('、')||'なし'}</p>`;
+}
+
+$('editor-road').addEventListener('change',refreshEditorPoints);
+$('editor-point').addEventListener('change',renderEditorPreview);
+$('editor-edit').addEventListener('click',()=>{const point=selectedEditorPoint();if(point)openFacilityEditor(point,true);});
+
+async function showEditor() {
+  $('login').hidden=true;$('navigation').hidden=true;$('editor').hidden=false;
+  if(!config.apiBaseUrl||!config.googleClientId) {
+    $('editor-setup').textContent='Cloudflare APIとGoogleログインの初期設定が必要です。設定手順はREADMEをご確認ください。';
+    return;
+  }
+  $('editor-setup').textContent=`Google登録編集者としてログインしてください。${editorToken?`（${decodeGoogleEmail(editorToken)}を確認中）`:''}`;
+  if(await editorAuthenticated()){await loadEditorData();$('editor-setup').textContent='道路と走行方向を選択してください。';}
+  else loadGoogleSignIn();
+}
+
+if(new URLSearchParams(location.search).has('editor'))showEditor();
+else if(authenticated())showNavigation();

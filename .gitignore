@@ -9,3 +9,4 @@ __pycache__/
 *.zip
 *.tsbuildinfo
 pages-dist/
+cloudflare-worker/wrangler.jsonc

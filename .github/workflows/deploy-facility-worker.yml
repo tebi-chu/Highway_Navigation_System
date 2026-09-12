@@ -1,0 +1,42 @@
+name: 施設編集APIをCloudflareへ公開
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cloudflare-worker/**"
+      - ".github/workflows/deploy-facility-worker.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    if: ${{ vars.FACILITY_API_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloudflare-worker
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
+      RATE_LIMIT_SALT: ${{ secrets.RATE_LIMIT_SALT }}
+      EDITOR_EMAILS: ${{ secrets.EDITOR_EMAILS }}
+      GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+      ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS }}
+      CLOUDFLARE_WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME }}
+      CLOUDFLARE_D1_DATABASE_NAME: ${{ vars.CLOUDFLARE_D1_DATABASE_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm test
+      - name: 公開設定を作成
+        run: node scripts/prepare-config.mjs
+      - name: D1テーブルを準備
+        run: npx wrangler d1 execute DB --remote --file=schema.sql
+      - name: Workerを公開
+        run: npx wrangler deploy
+      - name: 匿名利用者識別用Secretを設定
+        run: printf '%s' "$RATE_LIMIT_SALT" | npx wrangler secret put RATE_LIMIT_SALT

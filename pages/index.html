@@ -27,6 +27,7 @@
         <button>ナビを開く</button>
       </form>
       <p class="notice">このPINは簡易的な表示制限です。機密情報の保護には使用できません。</p>
+      <a class="editor-link" href="?editor=1">登録編集者用画面</a>
     </section>
   </main>
 
@@ -39,6 +40,38 @@
     <section id="point-list" class="live-list" aria-live="polite"></section>
     <footer class="vehicle-position"><i></i><b>現在地</b><span id="speed"></span></footer>
   </main>
+
+  <main id="editor" class="editor-shell" hidden>
+    <section class="editor-panel">
+      <div class="brand"><span>E4</span><div><b>施設情報編集</b><small>FACILITY EDITOR</small></div></div>
+      <p class="intro">自宅から高速道路・方向・SA／PAを選び、全端末共通の設備情報を編集します。</p>
+      <div id="editor-setup" class="editor-message"></div>
+      <div id="google-signin"></div>
+      <div id="editor-account" class="editor-account" hidden></div>
+      <button id="editor-logout" class="secondary-button" type="button" hidden>Googleからログアウト</button>
+      <div id="editor-controls" hidden>
+        <label for="editor-road">高速道路・走行方向</label>
+        <select id="editor-road"></select>
+        <label for="editor-point">SA・PA</label>
+        <select id="editor-point"></select>
+        <section id="editor-preview" class="editor-preview"></section>
+        <button id="editor-edit" class="primary-button" type="button">この地点を編集</button>
+      </div>
+      <a class="editor-link" href="./">ナビ画面へ戻る</a>
+    </section>
+  </main>
+
+  <dialog id="facility-dialog" class="facility-dialog">
+    <form id="facility-form" method="dialog">
+      <header><div><span id="edit-kinds"></span><strong id="edit-name"></strong></div><button id="edit-close" type="button" aria-label="閉じる">×</button></header>
+      <p id="edit-mode" class="edit-mode"></p>
+      <fieldset><legend>設備</legend><div id="facility-options" class="edit-options"></div></fieldset>
+      <fieldset><legend>店舗名</legend><div id="brand-options" class="edit-options brand-options"></div></fieldset>
+      <p id="edit-error" class="error" role="alert"></p>
+      <button id="edit-save" class="primary-button" type="submit">全端末へ保存</button>
+      <p class="notice">保存した内容は、この地点を表示するすべてのiPhone・Androidへ反映されます。</p>
+    </form>
+  </dialog>
 
   <script src="config.js"></script>
   <script src="app.js"></script>
