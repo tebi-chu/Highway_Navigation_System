@@ -1,16 +1,16 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-02",
+  "updatedAt": "2026-09-13",
   "regions": [
     {
-      "id": "ebina-aomori",
-      "name": "海老名IC～青森中央IC（往復テスト区間）",
-      "file": "data/ebina-aomori.json",
+      "id": "regional-expressways",
+      "name": "東北道・圏央道・関越道・上信越道・北関東道（上下線）",
+      "file": "data/regional-expressways.json",
       "bounds": {
-        "south": 35.15,
-        "west": 138.95,
-        "north": 41.0,
-        "east": 141.55
+        "south": 35.1,
+        "west": 137.8,
+        "north": 41.1,
+        "east": 141.7
       }
     }
   ]
