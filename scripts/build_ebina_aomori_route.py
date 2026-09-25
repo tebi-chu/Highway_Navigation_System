@@ -84,6 +84,7 @@ ROMAJI_FALLBACKS = {
     "黒磯板室": "Kuroiso-Itamuro", "滝沢中央": "Takizawa-chuo",
     "栃木都賀": "Tochigi-Tsuga", "那須高原": "Nasu-kogen", "白河中央": "Shirakawa-chuo",
     "福島松川": "Fukushima-Matsukawa", "平泉": "Hiraizumi", "矢板北": "Yaita-kita", "桑折": "Kori",
+    "談合坂": "Dangozaka",
 }
 
 

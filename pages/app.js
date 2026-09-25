@@ -324,7 +324,7 @@ function render(match, accuracy, statusText='') {
   const slots=[...Array(5-portraitPoints.length).fill(null),...portraitPoints.reverse()];
   const speedKph=match.speed*3.6>=20?match.speed*3.6:match.link.standardSpeedKPH;
 
-  $('route-number').textContent=match.link.id.startsWith('e4a-')?'E4A':match.link.id.startsWith('e4-')?'E4':'C4';
+  $('route-number').textContent=match.link.id.split('-')[0].toUpperCase();
   $('highway-name').textContent=match.link.highwayName;
   $('direction').textContent=`${match.link.directionName}・${match.link.destinationName}`;
   setStatus(statusText||`GPS精度 ±${Math.round(accuracy)}m`);

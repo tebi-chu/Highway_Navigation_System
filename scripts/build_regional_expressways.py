@@ -16,6 +16,8 @@ spec.loader.exec_module(base)
 ROADS = {
     "e4": ("E4", "東北自動車道"),
     "c4": ("C4", "首都圏中央連絡自動車道"),
+    "e20": ("E20", "中央自動車道"),
+    "e19": ("E19", "中央自動車道"),
     "e17": ("E17", "関越自動車道"),
     "e18": ("E18", "上信越自動車道"),
     "e50": ("E50", "北関東自動車道"),
@@ -25,6 +27,8 @@ ANCHORS = {
     "kawaguchi": (35.8447, 139.7380), "aomori": (40.7935, 140.6725),
     "chigasaki": (35.3543, 139.4049), "daiei": (35.8290, 140.4070),
     "matsuo": (35.6365, 140.4570), "kisarazu": (35.3660, 139.9465),
+    "takaido": (35.6805, 139.6047), "okaya": (36.0500, 138.0359),
+    "komaki": (35.2884, 136.9810),
     "nerima": (35.7483, 139.5990), "nagaoka": (37.4380, 138.8195),
     "fujioka": (36.2418, 139.0730), "joetsu": (37.1510, 138.2375),
     "takasaki": (36.3305, 139.0665), "hitachinaka": (36.3975, 140.5635),
@@ -39,6 +43,10 @@ DEFINITIONS = [
     ("c4-west", "c4", "首都圏中央連絡自動車道", "内回り", "茅ヶ崎方面", "daiei", "chigasaki", 80),
     ("c4-chiba-south", "c4", "首都圏中央連絡自動車道", "内回り", "木更津方面", "matsuo", "kisarazu", 80),
     ("c4-chiba-north", "c4", "首都圏中央連絡自動車道", "外回り", "松尾横芝方面", "kisarazu", "matsuo", 80),
+    ("e20-west", "e20", "中央自動車道", "下り", "名古屋方面", "takaido", "okaya", 100),
+    ("e19-west", "e19", "中央自動車道", "下り", "名古屋方面", "okaya", "komaki", 100),
+    ("e19-east", "e19", "中央自動車道", "上り", "東京方面", "komaki", "okaya", 100),
+    ("e20-east", "e20", "中央自動車道", "上り", "東京方面", "okaya", "takaido", 100),
     ("e17-north", "e17", "関越自動車道", "下り", "新潟方面", "nerima", "nagaoka", 100),
     ("e17-south", "e17", "関越自動車道", "上り", "東京方面", "nagaoka", "nerima", 100),
     ("e18-west", "e18", "上信越自動車道", "下り", "上越方面", "fujioka", "joetsu", 100),
@@ -54,6 +62,8 @@ NEXT_LINKS = {
     "e4a-west": ["e4-south"],
     "e50-east-west": ["e50-east-east"],
     "e50-west-east": ["e50-west-west"],
+    "e20-west": ["e19-west"],
+    "e19-east": ["e20-east"],
 }
 
 
@@ -82,15 +92,36 @@ def build_e50_graph(elements):
     return graph, coordinates
 
 
+def connect_nearby_sections(graph, coordinates, maximum=140):
+    """Join carriageway/route sections split by OSM tagging boundaries."""
+    cell_size = 0.002
+    buckets = {}
+    for node, (latitude, longitude) in coordinates.items():
+        cell = int(latitude / cell_size), int(longitude / cell_size)
+        for latitude_cell in range(cell[0] - 1, cell[0] + 2):
+            for longitude_cell in range(cell[1] - 1, cell[1] + 2):
+                for other in buckets.get((latitude_cell, longitude_cell), []):
+                    length = base.distance(coordinates[other], coordinates[node])
+                    if length <= maximum:
+                        graph.setdefault(node, []).append((other, length))
+                        graph.setdefault(other, []).append((node, length))
+        buckets.setdefault(cell, []).append(node)
+    return graph, coordinates
+
+
 def main():
     elements = json.loads(SOURCE.read_text(encoding="utf-8"))["elements"]
     graphs = {key: base.build_graph(elements, value) for key, value in ROADS.items()}
+    graphs["e20"] = connect_nearby_sections(*graphs["e20"])
+    graphs["e19"] = graphs["e20"]
     graphs["e50"] = build_e50_graph(elements)
     ramps = base.motorway_links(elements)
     candidates = []
     for element in elements:
         tags, coordinate = element.get("tags", {}), base.center(element)
         if not tags.get("name") or coordinate is None:
+            continue
+        if "仮称" in tags["name"] or "簡易" in tags["name"]:
             continue
         # Only accept the OSM object types that actually represent road
         # facilities.  A name containing the letters "PA"/"SA" is not enough:
@@ -154,7 +185,7 @@ def main():
     output = {
         "version": 4,
         "sourceAttribution": "Road geometry and point coordinates © OpenStreetMap contributors, ODbL 1.0. Verify current road operation and facilities with the road operator before travel.",
-        "coverage": "東北道・圏央道・関越道・上信越道・北関東道（開通済み区間、上下線）",
+        "coverage": "東北道・圏央道・中央道・関越道・上信越道・北関東道（開通済み区間、上下線）",
         "links": links, "points": points,
     }
     DESTINATION.write_text(json.dumps(output, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
