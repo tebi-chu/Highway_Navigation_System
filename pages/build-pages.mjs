@@ -20,8 +20,16 @@ await mkdir(path.join(output, 'data'), { recursive: true });
 for (const file of ['index.html', 'styles.css', 'app.js', 'highway-icon.png', 'manifest.webmanifest']) {
   await cp(path.join(source, file), path.join(output, file));
 }
-await cp(path.join(root, 'web/data/highway-manifest.json'), path.join(output, 'data/manifest.json'));
-await cp(path.join(root, 'web/data/ebina-aomori.json'), path.join(output, 'data/ebina-aomori.json'));
+const manifestPath = path.join(root, 'web/data/highway-manifest.json');
+const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+await cp(manifestPath, path.join(output, 'data/manifest.json'));
+for (const region of manifest.regions ?? []) {
+  if (typeof region.file !== 'string' || !/^data\/[a-z0-9-]+\.json$/i.test(region.file)) {
+    throw new Error(`道路データのファイル指定が不正です: ${region.file}`);
+  }
+  const filename = path.basename(region.file);
+  await cp(path.join(root, 'web/data', filename), path.join(output, 'data', filename));
+}
 await writeFile(path.join(output, '.nojekyll'), '');
 
 const hash = createHash('sha256').update(pin).digest('hex');

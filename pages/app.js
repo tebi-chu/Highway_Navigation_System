@@ -15,6 +15,12 @@ const brandLabels = {starbucks:'STARBUCKS',tullys:"TULLY'S",doutor:'DOUTOR',seve
 const editableFacilities=['restaurant','convenienceStore','cafe','fuel','hotSpring','shower','viewArea'];
 const editableBrands=['starbucks','tullys','doutor','sevenEleven','lawson','familyMart','gooz','ministop','yoshinoya','matsuya','sukiya'];
 let links = [], points = [], watchId = null, manifest = null, loadedRegion = null;
+let regionLoadPromise = null, regionLoadID = null, regionLoadFailedAt = 0;
+
+function setStatus(message) {
+  const element=$('status-message');
+  if(element.textContent!==message)element.textContent=message;
+}
 let wakeLock = null, navigationActive = false, estimateTimer = null;
 let wakeLockRetryTimer = null, wakeLockMonitorTimer = null, wakeLockRequestPending = false;
 let estimatedMatch = null, lastGoodGpsAt = 0, estimateTickAt = 0, lastAccuracy = 0, lastReliableSpeed = 0;
@@ -163,11 +169,11 @@ function optionMarkup(values,labels,selected) {
 
 function openFacilityEditor(item,privileged) {
   if(!privileged&&lastReliableSpeed*3.6>=10) {
-    $('status-message').textContent='安全な場所に停車してから施設情報を編集してください。';
+    setStatus('安全な場所に停車してから施設情報を編集してください。');
     return;
   }
   if(!config.apiBaseUrl) {
-    $('status-message').textContent='共通編集機能はCloudflareの初期設定後に利用できます。';
+    setStatus('共通編集機能はCloudflareの初期設定後に利用できます。');
     return;
   }
   currentEditPoint=item;
@@ -300,7 +306,7 @@ function updateEstimatedPosition(message='GPS受信不安定・直前速度で�
   const now=Date.now(),lostFor=now-lastGoodGpsAt;
   if(lostFor<GPS_SILENCE_BEFORE_ESTIMATE_MS)return false;
   if(lostFor>MAX_ESTIMATE_DURATION_MS) {
-    $('status-message').textContent='GPSを長時間取得できないため推定を停止しました。';
+    setStatus('GPSを長時間取得できないため推定を停止しました。');
     return false;
   }
   const elapsed=Math.max(0,Math.min(3,(now-estimateTickAt)/1000));
@@ -321,7 +327,7 @@ function render(match, accuracy, statusText='') {
   $('route-number').textContent=match.link.id.startsWith('e4a-')?'E4A':match.link.id.startsWith('e4-')?'E4':'C4';
   $('highway-name').textContent=match.link.highwayName;
   $('direction').textContent=`${match.link.directionName}・${match.link.destinationName}`;
-  $('status-message').textContent=statusText||`GPS精度 ±${Math.round(accuracy)}m`;
+  setStatus(statusText||`GPS精度 ±${Math.round(accuracy)}m`);
   $('gps-dot').classList.add('active');
   $('speed').textContent=`${Math.round(match.speed*3.6)} km/h`;
   const createCard=(item, compact=false) => {
@@ -364,17 +370,27 @@ async function ensureRegion(position) {
   const region=regionFor(position.coords.latitude,position.coords.longitude);
   if(!region) {
     links=[];points=[];loadedRegion=null;
-    $('status-message').textContent='この地域の高速道路データは現在準備中です。';
+    setStatus('この地域の高速道路データは現在準備中です。');
     return false;
   }
   if(loadedRegion===region.id) return true;
-  $('status-message').textContent=`${region.name}の道路データを読み込んでいます…`;
-  const response=await fetch(region.file);
-  if(!response.ok) throw new Error('region data unavailable');
-  const data=await response.json();
-  links=data.links;points=data.points;loadedRegion=region.id;
-  await syncOverrides();
-  return true;
+  if(regionLoadID===region.id&&regionLoadFailedAt&&Date.now()-regionLoadFailedAt<30000) {
+    throw new Error('region data retry delayed');
+  }
+  if(regionLoadID!==region.id||!regionLoadPromise) {
+    regionLoadID=region.id;
+    setStatus(`${region.name}の道路データを読み込んでいます…`);
+    regionLoadPromise=(async()=>{
+      const response=await fetch(region.file,{cache:'no-cache'});
+      if(!response.ok) throw new Error(`region data unavailable: ${response.status}`);
+      const data=await response.json();
+      if(!Array.isArray(data.links)||!Array.isArray(data.points))throw new Error('invalid region data');
+      links=data.links;points=data.points;loadedRegion=region.id;regionLoadFailedAt=0;
+      await syncOverrides();
+      return true;
+    })().catch(error=>{regionLoadFailedAt=Date.now();throw error;}).finally(()=>{regionLoadPromise=null;});
+  }
+  return regionLoadPromise;
 }
 
 async function handlePosition(position) {
@@ -382,13 +398,13 @@ async function handlePosition(position) {
       const accuracy=position.coords.accuracy;
       if((!Number.isFinite(accuracy) || accuracy>GPS_ACCURACY_LIMIT_METERS) && estimatedMatch) {
         lastAccuracy=Number.isFinite(accuracy)?accuracy:lastAccuracy;
-        if(!updateEstimatedPosition(`GPS精度低下 ±${Math.round(lastAccuracy)}m・直前速度で推定中`)) $('status-message').textContent=`GPS精度が低下しています（±${Math.round(lastAccuracy)}m）`;
+        if(!updateEstimatedPosition(`GPS精度低下 ±${Math.round(lastAccuracy)}m・直前速度で推定中`)) setStatus(`GPS精度が低下しています（±${Math.round(lastAccuracy)}m）`);
         return;
       }
       if(!await ensureRegion(position))return;
       if(!Number.isFinite(accuracy) || accuracy>GPS_ACCURACY_LIMIT_METERS) {
         lastAccuracy=Number.isFinite(accuracy)?accuracy:lastAccuracy;
-        if(!updateEstimatedPosition(`GPS精度低下 ±${Math.round(lastAccuracy)}m・直前速度で推定中`)) $('status-message').textContent=`GPS精度が低下しています（±${Math.round(lastAccuracy)}m）`;
+        if(!updateEstimatedPosition(`GPS精度低下 ±${Math.round(lastAccuracy)}m・直前速度で推定中`)) setStatus(`GPS精度が低下しています（±${Math.round(lastAccuracy)}m）`);
         return;
       }
       const match=matchPosition(position);
@@ -407,14 +423,14 @@ async function handlePosition(position) {
         render(match,accuracy);
       } else {
         estimatedMatch=null;
-        $('status-message').textContent='対応ルート付近の高速道路を判定できません。';
+        setStatus('対応ルート付近の高速道路を判定できません。');
       }
-  } catch {$('status-message').textContent='地域の道路データを読み込めません。';}
+  } catch {setStatus('地域の高速道路データを読み込めません。通信状態を確認してください。');}
 }
 
 function handlePositionError(error) {
-  if(error.code===1) {$('status-message').textContent='Chromeの位置情報を許可してください。';return;}
-  if(!updateEstimatedPosition()) $('status-message').textContent='位置情報を取得できません。';
+  if(error.code===1) {setStatus('Chromeの位置情報を許可してください。');return;}
+  if(!updateEstimatedPosition()) setStatus('位置情報を取得できません。');
 }
 
 function startLocationWatch(maximumAge=2000) {
@@ -424,7 +440,7 @@ function startLocationWatch(maximumAge=2000) {
 
 function refreshLocationAfterResume() {
   if(!navigationActive || !manifest || !navigator.geolocation)return;
-  $('status-message').textContent='現在位置を再確認しています…';
+  setStatus('現在位置を再確認しています…');
   startLocationWatch(0);
   navigator.geolocation.getCurrentPosition(
     handlePosition,
@@ -438,7 +454,7 @@ async function startNavigation() {
     const response=await fetch('data/manifest.json');
     manifest=await response.json();
   } catch {
-    $('status-message').textContent='道路データを読み込めません。'; return;
+    setStatus('道路データを読み込めません。'); return;
   }
   if((location.hostname==='127.0.0.1'||location.hostname==='localhost') && new URLSearchParams(location.search).has('preview')) {
     const region=manifest.regions[0];
@@ -450,7 +466,7 @@ async function startNavigation() {
     render({link,offset:sanbongi.offsetMeters-1500,speed:27.8},8,'サンプル表示');
     return;
   }
-  if(!navigator.geolocation) {$('status-message').textContent='このブラウザは位置情報に対応していません。';return;}
+  if(!navigator.geolocation) {setStatus('このブラウザは位置情報に対応していません。');return;}
   wakeLockMonitorTimer=setInterval(()=>requestWakeLock(),15000);
   estimateTimer=setInterval(()=>updateEstimatedPosition(),1000);
   overrideRefreshTimer=setInterval(()=>syncOverrides(),5*60*1000);
