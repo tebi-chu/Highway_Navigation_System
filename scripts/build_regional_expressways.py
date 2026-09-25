@@ -92,8 +92,21 @@ def main():
         tags, coordinate = element.get("tags", {}), base.center(element)
         if not tags.get("name") or coordinate is None:
             continue
+        # Only accept the OSM object types that actually represent road
+        # facilities.  A name containing the letters "PA"/"SA" is not enough:
+        # nearby shops and ordinary car parks otherwise become fake motorway
+        # service areas (for example "J-STYLE JAPAN").
+        osm_highway = tags.get("highway")
+        if osm_highway not in {"motorway_junction", "services", "rest_area"}:
+            continue
         english = base.romanized_parts(tags.get("name:en"))
         for index, (name, kind) in enumerate(base.point_names(tags["name"])):
+            if kind in {"SA", "PA"} and osm_highway not in {"services", "rest_area"}:
+                continue
+            if kind in {"SA", "PA"} and element.get("type") == "node":
+                continue
+            if kind in {"IC", "JCT"} and osm_highway != "motorway_junction":
+                continue
             romanized = english[min(index, len(english) - 1)] if english else base.ROMAJI_FALLBACKS.get(name, "")
             candidates.append((element["id"], name, kind, coordinate, romanized, base.direction_hint(tags["name"])))
 
@@ -111,11 +124,8 @@ def main():
             "standardSpeedKPH": speed, "polyline": base.coordinates_json(route),
             "nextLinkIDs": NEXT_LINKS.get(link_id, []),
         })
-        accepted = {"上り"} if direction == "上り" else {"下り"}
         selected = {}
         for source_id, raw_name, kind, coordinate, romanized, point_direction in candidates:
-            if kind in {"SA", "PA"} and point_direction and point_direction not in accepted:
-                continue
             lateral, offset = base.project(coordinate, route)
             limit = 1100 if kind in {"SA", "PA"} else 450
             if lateral > limit:

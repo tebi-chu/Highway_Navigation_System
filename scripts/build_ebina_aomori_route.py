@@ -291,12 +291,20 @@ def center(element):
     if "lat" in element:
         return element["lat"], element["lon"]
     value = element.get("center")
-    return (value["lat"], value["lon"]) if value else None
+    if value:
+        return value["lat"], value["lon"]
+    geometry = element.get("geometry") or []
+    if geometry:
+        return (
+            sum(item["lat"] for item in geometry) / len(geometry),
+            sum(item["lon"] for item in geometry) / len(geometry),
+        )
+    return None
 
 
 def normalize_name(value):
     value = unicodedata.normalize("NFKC", value)
-    value = re.sub(r"[（(](上り|下り|内回り|外回り|内廻り|外廻り)[）)]", "", value)
+    value = re.sub(r"\s*[（(](上り|下り|内回り|外回り|内廻り|外廻り|東行き|西行き|ハイウェイオアシス)[）)]", "", value)
     value = value.split(";")[0].split(":")[0].strip()
     value = re.sub(r"(スマート)?(IC|JCT|SA|PA)$", "", value, flags=re.IGNORECASE)
     return value.rstrip(" /・").strip()
@@ -326,7 +334,7 @@ def point_kind(name):
 def point_names(value):
     """Expand combined OSM labels such as `佐野SA;佐野スマートIC`."""
     normalized = unicodedata.normalize("NFKC", value)
-    normalized = re.sub(r"[（(](上り|下り|内回り|外回り|内廻り|外廻り)[）)]", "", normalized)
+    normalized = re.sub(r"\s*[（(](上り|下り|内回り|外回り|内廻り|外廻り|東行き|西行き|ハイウェイオアシス)[）)]", "", normalized)
     parts = [part.strip() for part in re.split(r"[;:]", normalized) if part.strip()]
     expanded = []
     for part in parts:
