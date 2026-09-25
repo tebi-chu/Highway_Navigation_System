@@ -66,6 +66,28 @@ NEXT_LINKS = {
     "e19-east": ["e20-east"],
 }
 
+CHUO_LINKS = {"e20-west", "e19-west", "e19-east", "e20-east"}
+CHUO_SHOWER_AREAS = {"双葉", "駒ヶ岳"}
+
+
+def facilities_for(link_id, name, kind):
+    if kind not in {"SA", "PA"}:
+        return []
+    facilities = ["restroom", "accessibility"]
+    if link_id in CHUO_LINKS:
+        # Central Expressway service-area data is intentionally explicit here:
+        # these are staffed food/shop areas, while SA additionally provide the
+        # main fuel and cafe services. Only categories shown by the driving UI
+        # are added, so cards no longer appear blank.
+        facilities.append("restaurant")
+        if kind == "SA":
+            facilities.extend(["cafe", "fuel"])
+        if name in CHUO_SHOWER_AREAS:
+            facilities.append("shower")
+        if name == "諏訪湖":
+            facilities.extend(["hotSpring", "viewArea"])
+    return list(dict.fromkeys(facilities))
+
 
 def build_e50_graph(elements):
     """Include junction connectors and short E4/E6 overlaps used by E50."""
@@ -168,7 +190,7 @@ def main():
             selected[key] = lateral, offset, source_id, romanized, coordinate
         for (name, kind), (_, offset, source_id, romanized, coordinate) in selected.items():
             offset = base.exit_branch_offset(name, coordinate, route, ramps, offset)
-            facilities = ["restroom", "accessibility"] if kind in {"SA", "PA"} else []
+            facilities = facilities_for(link_id, name, kind)
             points.append({
                 "id": f"{link_id}-{source_id}-{kind.lower()}", "name": name, "kind": kind,
                 "linkID": link_id, "offsetMeters": round(offset, 1),
