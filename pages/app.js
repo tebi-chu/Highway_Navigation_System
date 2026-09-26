@@ -316,6 +316,32 @@ function updateEstimatedPosition(message='GPS受信不安定・直前速度で�
   return true;
 }
 
+function fitRomanizedLabels(root) {
+  for(const label of root.querySelectorAll('.point-name>small')) {
+    const title=label.parentElement;
+    title.classList.remove('roman-stacked');
+    const japanese=title.querySelector(':scope>span');
+    const japaneseSize=parseFloat(getComputedStyle(title).fontSize)||27;
+    const maximum=Math.max(10,japaneseSize*.5);
+    const minimum=8;
+    const apply=size=>{
+      label.style.fontSize=`${size}px`;
+      label.style.lineHeight='1.05';
+    };
+    const fitsTwoLines=()=>label.clientWidth>0&&label.scrollHeight<=parseFloat(label.style.fontSize)*2.2;
+    apply(maximum);
+    if(label.clientWidth<64||!fitsTwoLines()) {
+      title.classList.add('roman-stacked');
+      apply(maximum);
+    }
+    let size=maximum;
+    while(!fitsTwoLines()&&size>minimum) {
+      size=Math.max(minimum,size-.5);
+      apply(size);
+    }
+  }
+}
+
 function render(match, accuracy, statusText='') {
   lastRenderArgs={match,accuracy,statusText};
   const upcoming=findUpcoming(match);
@@ -343,9 +369,7 @@ function render(match, accuracy, statusText='') {
     const brands=visibleBrands.map(brand=>`<b class="brand-badge brand-${brand}">${brandLabels[brand]}</b>`);
     const icons=item.facilities.filter(facility=>displayedFacilities.has(facility)&&!branded.has(facility)).map(facility=>`<span class="facility-icon" title="${facilityLabels[facility]||''}">${facilityIcons[facility]||''}</span>`);
     const facilities=[...brands,...icons].join('');
-    const titleWeight=[...item.name].length+(item.romanizedName?.length||0)*0.5;
-    const titleDensity=titleWeight>17?' title-very-long':titleWeight>12?' title-long':'';
-    article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name${titleDensity}"><span>${item.name}</span>${item.romanizedName?`<small>${item.romanizedName}</small>`:''}</strong></div><div class="live-details${facilities?'':' no-facilities'}">${facilities?`<div class="facility-row">${facilities}</div>`:''}<div class="live-metrics"><b class="arrival-time">${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b><b class="next-distance">${(Math.max(0,item.remaining)/1000).toFixed(1)}<small>km</small></b></div></div>`;
+    article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name"><span>${item.name}</span>${item.romanizedName?`<small>${item.romanizedName}</small>`:''}</strong></div><div class="live-details${facilities?'':' no-facilities'}">${facilities?`<div class="facility-row">${facilities}</div>`:''}<div class="live-metrics"><b class="arrival-time">${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b><b class="next-distance">${(Math.max(0,item.remaining)/1000).toFixed(1)}<small>km</small></b></div></div>`;
     addLongPress(article,item);
     return article;
   };
@@ -358,6 +382,7 @@ function render(match, accuracy, statusText='') {
   } else {
     $('point-list').replaceChildren(...slots.map(item=>createCard(item)));
   }
+  fitRomanizedLabels($('point-list'));
 }
 
 window.addEventListener('resize',()=>{
