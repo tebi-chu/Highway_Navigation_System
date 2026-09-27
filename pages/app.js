@@ -374,8 +374,8 @@ function render(match, accuracy, statusText='') {
     return article;
   };
   if(landscape) {
-    const primary=upcoming.slice(0,3).reverse();
-    const compact=upcoming.slice(3,7).reverse();
+    const primary=upcoming.slice(0,2).reverse();
+    const compact=upcoming.slice(2,5).reverse();
     const compactColumn=document.createElement('div');compactColumn.className='landscape-column compact-column';compactColumn.replaceChildren(...compact.map(item=>createCard(item,true)));
     const primaryColumn=document.createElement('div');primaryColumn.className='landscape-column primary-column';primaryColumn.replaceChildren(...primary.map(item=>createCard(item)));
     $('point-list').replaceChildren(compactColumn,primaryColumn);
