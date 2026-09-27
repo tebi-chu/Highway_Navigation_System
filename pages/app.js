@@ -361,7 +361,7 @@ function render(match, accuracy, statusText='') {
     const displayKinds=[...(item.kinds||[item.kind])].sort((a,b)=>(a==='SA'||a==='PA'?-1:0)-(b==='SA'||b==='PA'?-1:0));
     const article=document.createElement('article');article.className=`live-card kind-${item.kind.toLowerCase()}${compact?' compact-card':''}`;
     if(compact) {
-      article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name"><span>${item.name}</span></strong></div><div class="compact-metrics"><b>${(Math.max(0,item.remaining)/1000).toFixed(1)}<small>km</small></b><b>${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b></div>`;
+      article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name"><span>${item.name}</span></strong></div><div class="compact-metrics"><b class="next-distance">${(Math.max(0,item.remaining)/1000).toFixed(1)}<small>km</small></b><b class="arrival-time">${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b></div>`;
       return article;
     }
     const visibleBrands=item.brands.filter(brand=>displayedBrands.has(brand));

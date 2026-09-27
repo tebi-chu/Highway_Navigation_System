@@ -38,5 +38,14 @@ await writeFile(
   `window.HIGHWAY_ASSIST_CONFIG=${JSON.stringify({ pinHash: hash, apiBaseUrl, googleClientId })};\n`,
 );
 
-const html = await readFile(path.join(output, 'index.html'), 'utf8');
+let html = await readFile(path.join(output, 'index.html'), 'utf8');
 if (!html.includes('config.js')) throw new Error('config.js is not loaded by index.html');
+const assetVersion = createHash('sha256')
+  .update(await readFile(path.join(output, 'styles.css')))
+  .update(await readFile(path.join(output, 'app.js')))
+  .digest('hex')
+  .slice(0, 12);
+html = html
+  .replace('href="styles.css"', `href="styles.css?v=${assetVersion}"`)
+  .replace('src="app.js"', `src="app.js?v=${assetVersion}"`);
+await writeFile(path.join(output, 'index.html'), html);
