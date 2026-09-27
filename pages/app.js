@@ -322,7 +322,7 @@ function fitRomanizedLabels(root) {
     title.classList.remove('roman-stacked');
     const japanese=title.querySelector(':scope>span');
     const japaneseSize=parseFloat(getComputedStyle(title).fontSize)||27;
-    const maximum=Math.max(10,japaneseSize*.5);
+    const maximum=Math.max(10,japaneseSize*.75);
     const minimum=8;
     const apply=size=>{
       label.style.fontSize=`${size}px`;
