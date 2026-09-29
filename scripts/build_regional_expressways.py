@@ -21,6 +21,17 @@ ROADS = {
     "e17": ("E17", "関越自動車道"),
     "e18": ("E18", "上信越自動車道"),
     "e50": ("E50", "北関東自動車道"),
+    # Name-only matching keeps roads which share a route number (E1A/E23)
+    # separate.  第二東海自動車道横浜名古屋線 is the statutory route name;
+    # its open sections are presented by their signed names, 新東名 and
+    # 伊勢湾岸道, rather than duplicated as another road.
+    "e1-tomei": (None, "東名高速道路"),
+    # E1A matching also includes the short 新御殿場IC～御殿場JCT connector,
+    # whose OSM name is not consistently 新東名高速道路.  Endpoint routing
+    # and the explicit point allow-list below keep 伊勢湾岸道 separate.
+    "e1a-shintomei": ("E1A", "新東名高速道路"),
+    "e1a-isewangan": (None, "伊勢湾岸自動車道"),
+    "e23-ise": (None, "伊勢自動車道"),
 }
 
 ANCHORS = {
@@ -33,6 +44,11 @@ ANCHORS = {
     "fujioka": (36.2418, 139.0730), "joetsu": (37.1510, 138.2375),
     "takasaki": (36.3305, 139.0665), "hitachinaka": (36.3975, 140.5635),
     "iwafune": (36.3155, 139.6525),
+    "tokyo": (35.6258, 139.6225), "tomei-komaki": (35.3030, 136.9160),
+    "ebina-minami": (35.4145, 139.3810), "shin-hadano": (35.3710, 139.1740),
+    "new-gotemba": (35.3233, 138.9169), "toyota-higashi": (35.0550, 137.1780),
+    "yokkaichi-jct": (35.0340, 136.5710),
+    "ise-seki": (34.8371, 136.4233), "ise": (34.4805, 136.7310),
 }
 
 # id, graph, road name, direction, destination, start, end, speed
@@ -55,6 +71,18 @@ DEFINITIONS = [
     ("e50-east-east", "e50", "北関東自動車道", "下り", "ひたちなか方面", "iwafune", "hitachinaka", 100),
     ("e50-west-east", "e50", "北関東自動車道", "上り", "高崎方面", "hitachinaka", "iwafune", 100),
     ("e50-west-west", "e50", "北関東自動車道", "上り", "高崎方面", "iwafune", "takasaki", 100),
+    ("e1-tomei-west", "e1-tomei", "東名高速道路", "下り", "名古屋方面", "tokyo", "tomei-komaki", 100),
+    ("e1-tomei-east", "e1-tomei", "東名高速道路", "上り", "東京方面", "tomei-komaki", "tokyo", 100),
+    # 新秦野IC～新御殿場IC is not open yet, so the two open sections must
+    # remain separate and must never be joined by dead-reckoning.
+    ("e1a-shintomei-kanagawa-west", "e1a-shintomei", "新東名高速道路", "下り", "新秦野方面", "ebina-minami", "shin-hadano", 100),
+    ("e1a-shintomei-kanagawa-east", "e1a-shintomei", "新東名高速道路", "上り", "海老名方面", "shin-hadano", "ebina-minami", 100),
+    ("e1a-shintomei-west", "e1a-shintomei", "新東名高速道路", "下り", "名古屋方面", "new-gotemba", "toyota-higashi", 120),
+    ("e1a-shintomei-east", "e1a-shintomei", "新東名高速道路", "上り", "東京方面", "toyota-higashi", "new-gotemba", 120),
+    ("e1a-isewangan-west", "e1a-isewangan", "伊勢湾岸自動車道", "下り", "四日市方面", "toyota-higashi", "yokkaichi-jct", 100),
+    ("e1a-isewangan-east", "e1a-isewangan", "伊勢湾岸自動車道", "上り", "豊田方面", "yokkaichi-jct", "toyota-higashi", 100),
+    ("e23-ise-south", "e23-ise", "伊勢自動車道", "下り", "伊勢方面", "ise-seki", "ise", 100),
+    ("e23-ise-north", "e23-ise", "伊勢自動車道", "上り", "名古屋方面", "ise", "ise-seki", 100),
 ]
 
 NEXT_LINKS = {
@@ -64,10 +92,30 @@ NEXT_LINKS = {
     "e50-west-east": ["e50-west-west"],
     "e20-west": ["e19-west"],
     "e19-east": ["e20-east"],
+    "e1a-shintomei-west": ["e1a-isewangan-west"],
+    "e1a-isewangan-east": ["e1a-shintomei-east"],
 }
 
 CHUO_LINKS = {"e20-west", "e19-west", "e19-east", "e20-east"}
 CHUO_SHOWER_AREAS = {"双葉", "駒ヶ岳"}
+NEW_SERVICE_LINKS = {
+    "e1-tomei-west", "e1-tomei-east",
+    "e1a-shintomei-kanagawa-west", "e1a-shintomei-kanagawa-east",
+    "e1a-shintomei-west", "e1a-shintomei-east",
+    "e1a-isewangan-west", "e1a-isewangan-east",
+    "e23-ise-south", "e23-ise-north",
+}
+
+# Parallel expressways can run within a few hundred metres of one another.
+# A geometric projection alone would therefore put Tomei's 駒門/愛鷹 and
+# 藤枝 facilities onto Shin-Tomei.  Keep Shin-Tomei to its signed facilities.
+SHINTOMEI_POINT_NAMES = {
+    "海老名南", "厚木南", "伊勢原", "伊勢原大山", "秦野丹沢", "新秦野",
+    "御殿場", "新御殿場", "駿河湾沼津", "新富士", "新清水", "清水",
+    "新静岡", "静岡", "藤枝岡部", "島田金谷", "掛川", "森掛川",
+    "遠州森町", "新磐田", "浜松浜北", "浜松", "浜松いなさ", "新城",
+    "長篠設楽原", "岡崎東", "岡崎", "豊田東",
+}
 
 
 def facilities_for(link_id, name, kind):
@@ -86,6 +134,13 @@ def facilities_for(link_id, name, kind):
             facilities.append("shower")
         if name == "諏訪湖":
             facilities.extend(["hotSpring", "viewArea"])
+    if link_id in NEW_SERVICE_LINKS:
+        # Keep these cards useful until the editable cloud facility catalogue
+        # supplies operator-maintained details.  Every motorway SA/PA offers
+        # food service; SA cards also expose the principal fuel/cafe categories.
+        facilities.append("restaurant")
+        if kind == "SA":
+            facilities.extend(["cafe", "fuel"])
     return list(dict.fromkeys(facilities))
 
 
@@ -137,6 +192,8 @@ def main():
     graphs["e20"] = connect_nearby_sections(*graphs["e20"])
     graphs["e19"] = graphs["e20"]
     graphs["e50"] = build_e50_graph(elements)
+    for graph_id in ("e1-tomei", "e1a-shintomei", "e1a-isewangan", "e23-ise"):
+        graphs[graph_id] = connect_nearby_sections(*graphs[graph_id])
     ramps = base.motorway_links(elements)
     candidates = []
     for element in elements:
@@ -169,7 +226,9 @@ def main():
         route, _, _ = base.route(graph, coordinates, ANCHORS[start], ANCHORS[end])
         route = base.simplify(route)
         length = sum(base.distance(a, b) for a, b in zip(route, route[1:]))
-        if length < 25_000:
+        # The currently open Kanagawa section of Shin-Tomei is only about
+        # 21 km; reject anything shorter than 15 km while still accepting it.
+        if length < 15_000:
             raise RuntimeError(f"Unexpectedly short route: {link_id} {length/1000:.1f} km")
         links.append({
             "id": link_id, "highwayName": highway, "directionName": direction,
@@ -180,10 +239,14 @@ def main():
         selected = {}
         for source_id, raw_name, kind, coordinate, romanized, point_direction in candidates:
             lateral, offset = base.project(coordinate, route)
-            limit = 1100 if kind in {"SA", "PA"} else 450
+            limit = 1500 if graph_id == "e1a-shintomei" else (1100 if kind in {"SA", "PA"} else 450)
             if lateral > limit:
                 continue
             name = base.normalize_name(raw_name)
+            if graph_id == "e1a-shintomei" and name not in SHINTOMEI_POINT_NAMES:
+                continue
+            if graph_id == "e1a-shintomei" and name == "御殿場" and kind != "JCT":
+                continue
             key = name, kind
             if key in selected and selected[key][0] <= lateral:
                 continue
@@ -207,7 +270,7 @@ def main():
     output = {
         "version": 4,
         "sourceAttribution": "Road geometry and point coordinates © OpenStreetMap contributors, ODbL 1.0. Verify current road operation and facilities with the road operator before travel.",
-        "coverage": "東北道・圏央道・中央道・関越道・上信越道・北関東道（開通済み区間、上下線）",
+        "coverage": "東北道・圏央道・中央道・関越道・上信越道・北関東道・東名・新東名・伊勢湾岸道・伊勢道（開通済み区間、上下線）",
         "links": links, "points": points,
     }
     DESTINATION.write_text(json.dumps(output, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")

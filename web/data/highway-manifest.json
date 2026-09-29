@@ -1,14 +1,14 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-26",
+  "updatedAt": "2026-09-29",
   "regions": [
     {
       "id": "regional-expressways",
-      "name": "東北道・圏央道・中央道・関越道・上信越道・北関東道（上下線）",
+      "name": "東北道・圏央道・中央道・関越道・上信越道・北関東道・東名・新東名・伊勢湾岸道・伊勢道（上下線）",
       "file": "data/regional-expressways.json",
       "bounds": {
-        "south": 35.1,
-        "west": 136.7,
+        "south": 34.3,
+        "west": 136.2,
         "north": 41.1,
         "east": 141.7
       }

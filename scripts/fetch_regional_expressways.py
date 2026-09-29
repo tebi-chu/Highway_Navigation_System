@@ -11,11 +11,15 @@ ROOT = Path(__file__).resolve().parents[1]
 DESTINATION = ROOT / "data-osm-regional-expressways.json"
 
 ROADS = [
-    ("C4", "首都圏中央連絡自動車道|圏央道", "35.10,139.10,36.30,140.70"),
-    ("E20", "中央自動車道|中央道", "35.10,136.70,36.30,139.80"),
-    ("E17", "関越自動車道", "35.60,138.50,37.70,140.00"),
-    ("E18", "上信越自動車道", "36.00,137.90,37.40,139.30"),
-    ("E50", "北関東自動車道", "36.10,138.90,36.70,140.75"),
+    ("c4", "C4", "首都圏中央連絡自動車道|圏央道", "35.10,139.10,36.30,140.70"),
+    ("e20", "E20", "中央自動車道|中央道", "35.10,136.70,36.30,139.80"),
+    ("e17", "E17", "関越自動車道", "35.60,138.50,37.70,140.00"),
+    ("e18", "E18", "上信越自動車道", "36.00,137.90,37.40,139.30"),
+    ("e50", "E50", "北関東自動車道", "36.10,138.90,36.70,140.75"),
+    ("e1-tomei", "E1", "東名高速道路|東名高速|東名", "34.65,136.75,35.85,139.80"),
+    ("e1a-shintomei", "E1A", "新東名高速道路|新東名", "34.70,136.80,35.65,139.50"),
+    ("e1a-isewangan", "E1A", "伊勢湾岸自動車道|伊勢湾岸道", "34.75,136.45,35.25,137.35"),
+    ("e23-ise", "E23", "伊勢自動車道|伊勢道", "34.35,136.25,34.95,136.85"),
 ]
 
 
@@ -55,14 +59,15 @@ def main():
     for filename in ("data-osm-e4.json", "data-osm-e4-route.json", "data-osm-e4-gap.json"):
         elements.extend(json.loads((ROOT / filename).read_text(encoding="utf-8"))["elements"])
     for index, road in enumerate(ROADS):
-        cache = ROOT / f"data-osm-regional-{road[0].lower()}.json"
+        cache_key, ref, name_pattern, bounds = road
+        cache = ROOT / f"data-osm-regional-{cache_key}.json"
         if cache.exists():
             payload = json.loads(cache.read_text(encoding="utf-8"))
         else:
-            payload = fetch(*road)
+            payload = fetch(ref, name_pattern, bounds)
             cache.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         elements.extend(payload["elements"])
-        print(f"{road[0]}: {len(payload['elements']):,} elements")
+        print(f"{cache_key}: {len(payload['elements']):,} elements")
         if index + 1 < len(ROADS):
             time.sleep(2)
     unique = {(item["type"], item["id"]): item for item in elements}
