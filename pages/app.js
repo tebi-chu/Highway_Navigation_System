@@ -27,6 +27,7 @@ let estimatedMatch = null, lastGoodGpsAt = 0, estimateTickAt = 0, lastAccuracy =
 let lastGoodCoordinate = null, lastGoodCoordinateAt = 0;
 let lastRenderArgs = null;
 let currentEditPoint = null, currentEditPrivileged = false, selectedEditorPointID = '', editorToken = sessionStorage.getItem('highway-editor-token')||'';
+let editorRoadGroups = new Map();
 let overrideRefreshTimer = null;
 const GPS_ACCURACY_LIMIT_METERS = 100;
 const GPS_SILENCE_BEFORE_ESTIMATE_MS = 3000;
@@ -576,8 +577,8 @@ function loadGoogleSignIn() {
 
 async function loadEditorData() {
   if(links.length&&points.length){populateEditorRoads();return;}
-  const manifestResponse=await fetch('data/manifest.json');manifest=await manifestResponse.json();
-  const datasets=await Promise.all(manifest.regions.map(region=>fetch(region.file).then(response=>response.json())));
+  const manifestResponse=await fetch(`data/manifest.json?_=${Date.now()}`,{cache:'no-store'});manifest=await manifestResponse.json();
+  const datasets=await Promise.all(manifest.regions.map(region=>fetch(`${region.file}?v=${encodeURIComponent(manifest.updatedAt||Date.now())}`,{cache:'no-store'}).then(response=>response.json())));
   links=datasets.flatMap(data=>data.links);points=datasets.flatMap(data=>data.points);
   for(const point of points){point._sourceName=point.name;point._sourceRomanizedName=point.romanizedName||'';}
   await syncOverrides();populateEditorRoads();
@@ -585,15 +586,34 @@ async function loadEditorData() {
 
 function populateEditorRoads() {
   const select=$('editor-road');
-  select.replaceChildren(...links.map(link=>{
-    const option=document.createElement('option');option.value=link.id;option.textContent=`${link.highwayName}｜${link.directionName}・${link.destinationName}`;return option;
+  editorRoadGroups=new Map();
+  for(const link of links) {
+    const key=`${link.highwayName}::${link.directionName}`;
+    const group=editorRoadGroups.get(key)||{key,highwayName:link.highwayName,directionName:link.directionName,links:[]};
+    group.links.push(link);editorRoadGroups.set(key,group);
+  }
+  // Full-route editing should read in driving order even when an unopened
+  // gap requires separate navigation links internally.
+  const preferredOrder=new Map([
+    ['e1a-shintomei-west',0],['e1a-shintomei-kanagawa-west',-1],
+    ['e1a-shintomei-east',0],['e1a-shintomei-kanagawa-east',1],
+  ]);
+  for(const group of editorRoadGroups.values())group.links.sort((a,b)=>(preferredOrder.get(a.id)??links.indexOf(a))-(preferredOrder.get(b.id)??links.indexOf(b)));
+  select.replaceChildren(...[...editorRoadGroups.values()].map(group=>{
+    const linkIDs=new Set(group.links.map(link=>link.id));
+    const count=points.filter(point=>linkIDs.has(point.linkID)).length;
+    const destinations=[...new Set(group.links.map(link=>link.destinationName))];
+    const option=document.createElement('option');option.value=group.key;
+    option.textContent=`${group.highwayName}｜${group.directionName}・${destinations.join('／')}（${count}地点）`;
+    return option;
   }));
   refreshEditorPoints();
 }
 
 function refreshEditorPoints(preferredID='') {
-  const linkID=$('editor-road').value;
-  const list=points.filter(point=>point.linkID===linkID).sort((a,b)=>a.offsetMeters-b.offsetMeters||a.kind.localeCompare(b.kind));
+  const group=editorRoadGroups.get($('editor-road').value);
+  const linkOrder=new Map((group?.links||[]).map((link,index)=>[link.id,index]));
+  const list=points.filter(point=>linkOrder.has(point.linkID)).sort((a,b)=>(linkOrder.get(a.linkID)-linkOrder.get(b.linkID))||a.offsetMeters-b.offsetMeters||a.kind.localeCompare(b.kind));
   if(preferredID&&list.some(point=>point.id===preferredID))selectedEditorPointID=preferredID;
   else if(!list.some(point=>point.id===selectedEditorPointID))selectedEditorPointID=list[0]?.id||'';
   const container=$('editor-point-list');
