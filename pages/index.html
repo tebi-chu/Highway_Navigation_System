@@ -44,7 +44,7 @@
   <main id="editor" class="editor-shell" hidden>
     <section class="editor-panel">
       <div class="brand"><span>E4</span><div><b>施設情報編集</b><small>FACILITY EDITOR</small></div></div>
-      <p class="intro">自宅から高速道路・方向・SA／PAを選び、全端末共通の設備情報を編集します。</p>
+      <p class="intro">現在地に関係なく、高速道路・方向を選んでJCT／IC／SA／PAの表示と設備情報を編集できます。</p>
       <div id="editor-setup" class="editor-message"></div>
       <div id="google-signin"></div>
       <div id="editor-account" class="editor-account" hidden></div>
@@ -52,8 +52,8 @@
       <div id="editor-controls" hidden>
         <label for="editor-road">高速道路・走行方向</label>
         <select id="editor-road"></select>
-        <label for="editor-point">SA・PA</label>
-        <select id="editor-point"></select>
+        <label>登録地点（走行順）</label>
+        <div id="editor-point-list" class="editor-point-list" role="listbox" aria-label="登録地点"></div>
         <section id="editor-preview" class="editor-preview"></section>
         <button id="editor-edit" class="primary-button" type="button">この地点を編集</button>
       </div>
@@ -65,8 +65,15 @@
     <form id="facility-form" method="dialog">
       <header><div><span id="edit-kinds"></span><strong id="edit-name"></strong></div><button id="edit-close" type="button" aria-label="閉じる">×</button></header>
       <p id="edit-mode" class="edit-mode"></p>
-      <fieldset><legend>設備</legend><div id="facility-options" class="edit-options"></div></fieldset>
-      <fieldset><legend>店舗名</legend><div id="brand-options" class="edit-options brand-options"></div></fieldset>
+      <fieldset id="display-options"><legend>名称・表示</legend>
+        <label class="name-field" for="edit-display-name">表示名</label>
+        <input id="edit-display-name" class="name-input" maxlength="80" autocomplete="off">
+        <p class="field-help">空欄で元の名称に戻ります。</p>
+        <label class="visibility-option"><input id="edit-hidden" type="checkbox"><span>ナビ画面から非表示（削除扱い）</span></label>
+        <p class="field-help">元データは残るため、あとからこの画面で再表示できます。</p>
+      </fieldset>
+      <fieldset id="facility-fieldset"><legend>設備</legend><div id="facility-options" class="edit-options"></div></fieldset>
+      <fieldset id="brand-fieldset"><legend>店舗名</legend><div id="brand-options" class="edit-options brand-options"></div></fieldset>
       <p id="edit-error" class="error" role="alert"></p>
       <button id="edit-save" class="primary-button" type="submit">全端末へ保存</button>
       <p class="notice">保存した内容は、この地点を表示するすべてのiPhone・Androidへ反映されます。</p>

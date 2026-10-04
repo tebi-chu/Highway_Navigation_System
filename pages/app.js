@@ -26,13 +26,14 @@ let wakeLockRetryTimer = null, wakeLockMonitorTimer = null, wakeLockRequestPendi
 let estimatedMatch = null, lastGoodGpsAt = 0, estimateTickAt = 0, lastAccuracy = 0, lastReliableSpeed = 0;
 let lastGoodCoordinate = null, lastGoodCoordinateAt = 0;
 let lastRenderArgs = null;
-let currentEditPoint = null, editorToken = sessionStorage.getItem('highway-editor-token')||'';
+let currentEditPoint = null, currentEditPrivileged = false, selectedEditorPointID = '', editorToken = sessionStorage.getItem('highway-editor-token')||'';
 let overrideRefreshTimer = null;
 const GPS_ACCURACY_LIMIT_METERS = 100;
 const GPS_SILENCE_BEFORE_ESTIMATE_MS = 3000;
 const MAX_ESTIMATE_DURATION_MS = 15*60*1000;
 
 const $ = (id) => document.getElementById(id);
+const escapeHTML = value => String(value??'').replace(/[&<>"']/g,character=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
 const meters = (a,b) => {const lat=(a.latitude+b.latitude)*Math.PI/360; return Math.hypot((b.longitude-a.longitude)*111320*Math.cos(lat),(b.latitude-a.latitude)*110540)};
 const eta = (seconds) => new Date(Date.now()+seconds*1000).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'});
 
@@ -114,8 +115,14 @@ function apiUrl(path) {
 function applyOverrides(overrides) {
   const byID=new Map(overrides.map(item=>[item.pointId,item]));
   for(const point of points) {
+    point._sourceName??=point.name;
+    point._sourceRomanizedName??=point.romanizedName||'';
     const override=byID.get(point.id);
-    if(override) {
+    point.name=override?.displayName||point._sourceName;
+    point.romanizedName=override?.displayName? '':point._sourceRomanizedName;
+    point.hidden=override?.hidden===true;
+    point.displayName=override?.displayName||null;
+    if(override&&Array.isArray(override.facilities)&&Array.isArray(override.brands)) {
       point.facilities=[...override.facilities];
       point.brands=[...override.brands];
     }
@@ -123,14 +130,14 @@ function applyOverrides(overrides) {
   if(lastRenderArgs)render(lastRenderArgs.match,lastRenderArgs.accuracy,lastRenderArgs.statusText);
 }
 
-async function syncOverrides() {
+async function syncOverrides(force=false) {
   const cached=localStorage.getItem('highway-facility-overrides');
   if(cached)try{applyOverrides(JSON.parse(cached));}catch{}
   if(!config.apiBaseUrl||!points.length)return;
   try {
     const roadIDs=[...new Set(points.map(point=>point.linkID))];
     const batches=await Promise.all(roadIDs.map(async roadID=>{
-      const response=await fetch(apiUrl(`/v1/overrides?roadId=${encodeURIComponent(roadID)}`));
+      const response=await fetch(apiUrl(`/v1/overrides?roadId=${encodeURIComponent(roadID)}${force?`&_=${Date.now()}`:''}`),force?{cache:'no-store'}:undefined);
       if(!response.ok)throw new Error();
       return (await response.json()).overrides;
     }));
@@ -177,11 +184,19 @@ function openFacilityEditor(item,privileged) {
     return;
   }
   currentEditPoint=item;
+  currentEditPrivileged=privileged;
   $('edit-kinds').textContent=(item.kinds||[item.kind]).join('・');
   $('edit-name').textContent=item.name;
   $('edit-mode').textContent=privileged?'Google登録編集者モード（連続編集可能）':'一般編集モード（1時間に5回まで）';
   $('facility-options').innerHTML=optionMarkup(editableFacilities,facilityLabels,item.facilities||[]);
   $('brand-options').innerHTML=optionMarkup(editableBrands,brandLabels,item.brands||[]);
+  $('display-options').hidden=!privileged;
+  $('edit-display-name').value=item.displayName||'';
+  $('edit-display-name').placeholder=item._sourceName||item.name;
+  $('edit-hidden').checked=item.hidden===true;
+  const hasFacilities=['SA','PA'].includes(item.kind)||(item.kinds||[]).some(kind=>kind==='SA'||kind==='PA');
+  $('facility-fieldset').hidden=!hasFacilities;
+  $('brand-fieldset').hidden=!hasFacilities;
   $('edit-error').textContent='';
   $('facility-dialog').showModal();
 }
@@ -195,13 +210,25 @@ $('facility-form').addEventListener('submit',async event=>{
   try {
     const headers={'content-type':'application/json','x-highway-device-id':anonymousDeviceID()};
     if(editorToken)headers.authorization=`Bearer ${editorToken}`;
-    const response=await fetch(apiUrl('/v1/overrides'),{method:'POST',headers,body:JSON.stringify({pointId:currentEditPoint.id,roadId:currentEditPoint.linkID,facilities:checked('facility-options'),brands:checked('brand-options')})});
+    const payload={pointId:currentEditPoint.id,roadId:currentEditPoint.linkID,facilities:checked('facility-options'),brands:checked('brand-options')};
+    if(currentEditPrivileged) {
+      const displayName=$('edit-display-name').value.trim();
+      payload.displayName=displayName||null;
+      payload.hidden=$('edit-hidden').checked;
+    }
+    const response=await fetch(apiUrl('/v1/overrides'),{method:'POST',headers,body:JSON.stringify(payload)});
     const data=await response.json();
     if(!response.ok)throw new Error(data.error||'保存できませんでした。');
     currentEditPoint.facilities=[...data.facilities];currentEditPoint.brands=[...data.brands];
-    await syncOverrides();
+    if(currentEditPrivileged) {
+      currentEditPoint.displayName=data.displayName||null;
+      currentEditPoint.name=data.displayName||currentEditPoint._sourceName;
+      currentEditPoint.romanizedName=data.displayName?'':currentEditPoint._sourceRomanizedName;
+      currentEditPoint.hidden=data.hidden===true;
+    }
+    await syncOverrides(true);
     $('facility-dialog').close();
-    if($('editor').hidden===false)renderEditorPreview();
+    if($('editor').hidden===false){refreshEditorPoints(currentEditPoint.id);renderEditorPreview();}
   } catch(error) {$('edit-error').textContent=error.message;}
   finally {$('edit-save').disabled=false;}
 });
@@ -245,7 +272,7 @@ function matchPosition(position) {
 
 function findUpcoming(match) {
   const byID=new Map(links.map(link=>[link.id,link])),results=[];
-  for(const point of points) if(point.linkID===match.link.id && point.offsetMeters>=match.offset-200) results.push({...point,remaining:point.offsetMeters-match.offset});
+  for(const point of points) if(!point.hidden&&point.linkID===match.link.id && point.offsetMeters>=match.offset-200) results.push({...point,remaining:point.offsetMeters-match.offset});
   const queue=(match.link.nextLinkIDs||[]).map(id=>({id,distance:match.link.lengthMeters-match.offset}));
   const visited=new Map();
   while(queue.length && results.length<24) {
@@ -253,7 +280,7 @@ function findUpcoming(match) {
     const current=queue.shift(),link=byID.get(current.id);
     if(!link || current.distance>=visited.get(link.id))continue;
     visited.set(link.id,current.distance);
-    for(const point of points)if(point.linkID===link.id)results.push({...point,remaining:current.distance+point.offsetMeters});
+    for(const point of points)if(!point.hidden&&point.linkID===link.id)results.push({...point,remaining:current.distance+point.offsetMeters});
     for(const nextID of link.nextLinkIDs||[])queue.push({id:nextID,distance:current.distance+link.lengthMeters});
   }
   const unique=[];
@@ -361,7 +388,7 @@ function render(match, accuracy, statusText='') {
     const displayKinds=[...(item.kinds||[item.kind])].sort((a,b)=>(a==='SA'||a==='PA'?-1:0)-(b==='SA'||b==='PA'?-1:0));
     const article=document.createElement('article');article.className=`live-card kind-${item.kind.toLowerCase()}${compact?' compact-card':''}`;
     if(compact) {
-      article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name"><span>${item.name}</span></strong></div><div class="compact-metrics"><b class="next-distance">${(Math.max(0,item.remaining)/1000).toFixed(1)}<small>km</small></b><b class="arrival-time">${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b></div>`;
+      article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name"><span>${escapeHTML(item.name)}</span></strong></div><div class="compact-metrics"><b class="next-distance">${(Math.max(0,item.remaining)/1000).toFixed(1)}<small>km</small></b><b class="arrival-time">${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b></div>`;
       return article;
     }
     const visibleBrands=item.brands.filter(brand=>displayedBrands.has(brand));
@@ -369,7 +396,7 @@ function render(match, accuracy, statusText='') {
     const brands=visibleBrands.map(brand=>`<b class="brand-badge brand-${brand}">${brandLabels[brand]}</b>`);
     const icons=item.facilities.filter(facility=>displayedFacilities.has(facility)&&!branded.has(facility)).map(facility=>`<span class="facility-icon" title="${facilityLabels[facility]||''}">${facilityIcons[facility]||''}</span>`);
     const facilities=[...brands,...icons].join('');
-    article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name"><span>${item.name}</span>${item.romanizedName?`<small>${item.romanizedName}</small>`:''}</strong></div><div class="live-details${facilities?'':' no-facilities'}">${facilities?`<div class="facility-row">${facilities}</div>`:''}<div class="live-metrics"><b class="arrival-time">${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b><b class="next-distance">${(Math.max(0,item.remaining)/1000).toFixed(1)}<small>km</small></b></div></div>`;
+    article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name"><span>${escapeHTML(item.name)}</span>${item.romanizedName?`<small>${escapeHTML(item.romanizedName)}</small>`:''}</strong></div><div class="live-details${facilities?'':' no-facilities'}">${facilities?`<div class="facility-row">${facilities}</div>`:''}<div class="live-metrics"><b class="arrival-time">${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b><b class="next-distance">${(Math.max(0,item.remaining)/1000).toFixed(1)}<small>km</small></b></div></div>`;
     addLongPress(article,item);
     return article;
   };
@@ -547,6 +574,7 @@ async function loadEditorData() {
   const manifestResponse=await fetch('data/manifest.json');manifest=await manifestResponse.json();
   const datasets=await Promise.all(manifest.regions.map(region=>fetch(region.file).then(response=>response.json())));
   links=datasets.flatMap(data=>data.links);points=datasets.flatMap(data=>data.points);
+  for(const point of points){point._sourceName=point.name;point._sourceRomanizedName=point.romanizedName||'';}
   await syncOverrides();populateEditorRoads();
 }
 
@@ -558,25 +586,40 @@ function populateEditorRoads() {
   refreshEditorPoints();
 }
 
-function refreshEditorPoints() {
+function refreshEditorPoints(preferredID='') {
   const linkID=$('editor-road').value;
-  const list=points.filter(point=>point.linkID===linkID&&['SA','PA'].includes(point.kind)).sort((a,b)=>a.offsetMeters-b.offsetMeters);
-  $('editor-point').replaceChildren(...list.map(point=>{
-    const option=document.createElement('option');option.value=point.id;option.textContent=`${point.kind} ${point.name}`;return option;
+  const list=points.filter(point=>point.linkID===linkID).sort((a,b)=>a.offsetMeters-b.offsetMeters||a.kind.localeCompare(b.kind));
+  if(preferredID&&list.some(point=>point.id===preferredID))selectedEditorPointID=preferredID;
+  else if(!list.some(point=>point.id===selectedEditorPointID))selectedEditorPointID=list[0]?.id||'';
+  const container=$('editor-point-list');
+  const previousScroll=container.scrollTop;
+  if(!list.length){container.innerHTML='<div class="editor-empty">この方向には登録地点がありません。</div>';renderEditorPreview();return;}
+  container.replaceChildren(...list.map(point=>{
+    const button=document.createElement('button');
+    button.type='button';button.className=`editor-point-item${point.id===selectedEditorPointID?' selected':''}${point.hidden?' is-hidden':''}`;
+    button.setAttribute('role','option');button.setAttribute('aria-selected',point.id===selectedEditorPointID?'true':'false');button.dataset.pointId=point.id;
+    const kind=document.createElement('span');kind.className='editor-point-kind';kind.textContent=(point.kinds||[point.kind]).join('・');
+    const name=document.createElement('span');name.className='editor-point-name';name.textContent=point.name;
+    const meta=document.createElement('span');meta.className='editor-point-meta';meta.textContent=point.hidden?'非表示':`${(point.offsetMeters/1000).toFixed(1)} km`;
+    button.append(kind,name,meta);
+    button.addEventListener('click',()=>{selectedEditorPointID=point.id;refreshEditorPoints(point.id);renderEditorPreview();});
+    return button;
   }));
+  container.scrollTop=previousScroll;
   renderEditorPreview();
 }
 
-function selectedEditorPoint() {return points.find(point=>point.id===$('editor-point').value);}
+function selectedEditorPoint() {return points.find(point=>point.id===selectedEditorPointID);}
 function renderEditorPreview() {
-  const point=selectedEditorPoint();if(!point){$('editor-preview').textContent='この方向にはSA・PAが登録されていません。';return;}
+  const point=selectedEditorPoint();if(!point){$('editor-preview').textContent='編集する地点を選択してください。';return;}
   const facilities=(point.facilities||[]).filter(value=>editableFacilities.includes(value)).map(value=>facilityLabels[value]);
   const brands=(point.brands||[]).filter(value=>editableBrands.includes(value)).map(value=>brandLabels[value]);
-  $('editor-preview').innerHTML=`<div><span>${point.kind}</span><strong>${point.name}</strong></div><p><b>設備</b>${facilities.join('、')||'なし'}</p><p><b>店舗</b>${brands.join('、')||'なし'}</p>`;
+  const source=point._sourceName&&point._sourceName!==point.name?`<p class="source-name"><b>元名称</b>${escapeHTML(point._sourceName)}</p>`:'';
+  const service=['SA','PA'].includes(point.kind)?`<p><b>設備</b>${facilities.join('、')||'なし'}</p><p><b>店舗</b>${brands.join('、')||'なし'}</p>`:'';
+  $('editor-preview').innerHTML=`<div><span>${escapeHTML(point.kind)}</span><strong>${escapeHTML(point.name)}</strong></div>${point.hidden?'<p class="hidden-state"><b>表示</b>ナビ画面では非表示</p>':''}${source}${service}`;
 }
 
-$('editor-road').addEventListener('change',refreshEditorPoints);
-$('editor-point').addEventListener('change',renderEditorPreview);
+$('editor-road').addEventListener('change',()=>{selectedEditorPointID='';refreshEditorPoints();});
 $('editor-edit').addEventListener('click',()=>{const point=selectedEditorPoint();if(point)openFacilityEditor(point,true);});
 
 async function showEditor() {

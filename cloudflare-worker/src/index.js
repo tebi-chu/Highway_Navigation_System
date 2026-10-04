@@ -14,7 +14,18 @@ export function normalizeUpdate(body) {
   const facilities=[...new Set(body.facilities)].filter(value=>FACILITIES.has(value));
   const brands=[...new Set(body.brands)].filter(value=>BRANDS.has(value));
   if(facilities.length!==body.facilities.length||brands.length!==body.brands.length)throw new Error('unknown selection');
-  return {pointId:body.pointId,roadId:body.roadId,facilities,brands};
+  let displayName;
+  if(Object.hasOwn(body,'displayName')) {
+    if(body.displayName!==null&&typeof body.displayName!=='string')throw new Error('invalid name');
+    displayName=body.displayName===null?null:body.displayName.trim();
+    if(displayName!==null&&(!displayName.length||displayName.length>80||/[<>\u0000-\u001f]/.test(displayName)))throw new Error('invalid name');
+  }
+  let hidden;
+  if(Object.hasOwn(body,'hidden')) {
+    if(typeof body.hidden!=='boolean')throw new Error('invalid visibility');
+    hidden=body.hidden;
+  }
+  return {pointId:body.pointId,roadId:body.roadId,facilities,brands,...(displayName!==undefined?{displayName}:{}),...(hidden!==undefined?{hidden}: {})};
 }
 
 function cors(request,env) {
@@ -75,21 +86,40 @@ async function consumeAnonymousLimit(request,env) {
 
 async function listOverrides(env,url) {
   const roadId=url.searchParams.get('roadId');
-  const statement=roadId
+  const facilityStatement=roadId
     ? env.DB.prepare('SELECT point_id,road_id,facilities_json,brands_json,updated_at FROM facility_overrides WHERE road_id=?1').bind(roadId)
     : env.DB.prepare('SELECT point_id,road_id,facilities_json,brands_json,updated_at FROM facility_overrides');
-  const {results=[]}=await statement.all();
-  return results.map(row=>({pointId:row.point_id,roadId:row.road_id,facilities:JSON.parse(row.facilities_json),brands:JSON.parse(row.brands_json),updatedAt:row.updated_at}));
+  const displayStatement=roadId
+    ? env.DB.prepare('SELECT point_id,road_id,display_name,is_hidden,updated_at FROM point_display_overrides WHERE road_id=?1').bind(roadId)
+    : env.DB.prepare('SELECT point_id,road_id,display_name,is_hidden,updated_at FROM point_display_overrides');
+  const [{results:facilityRows=[]},{results:displayRows=[]}]=await Promise.all([facilityStatement.all(),displayStatement.all()]);
+  const merged=new Map();
+  for(const row of facilityRows)merged.set(row.point_id,{pointId:row.point_id,roadId:row.road_id,facilities:JSON.parse(row.facilities_json),brands:JSON.parse(row.brands_json),updatedAt:row.updated_at});
+  for(const row of displayRows) {
+    const current=merged.get(row.point_id)||{pointId:row.point_id,roadId:row.road_id};
+    current.displayName=row.display_name;
+    current.hidden=!!row.is_hidden;
+    current.updatedAt=Math.max(current.updatedAt||0,row.updated_at);
+    merged.set(row.point_id,current);
+  }
+  return [...merged.values()];
 }
 
 async function saveOverride(request,env) {
   const body=normalizeUpdate(await request.json());
   const editor=await editorFromRequest(request,env);
+  const changesDisplay=Object.hasOwn(body,'displayName')||Object.hasOwn(body,'hidden');
+  if(changesDisplay&&!editor)return json({error:'表示名変更と非表示設定には登録編集者のGoogleログインが必要です。'},403);
   if(!editor && !await consumeAnonymousLimit(request,env))return json({error:'短時間の編集回数が上限に達しました。1時間後にもう一度お試しください。'},429);
   const updatedAt=Date.now();
   await env.DB.prepare(`INSERT INTO facility_overrides(point_id,road_id,facilities_json,brands_json,updated_at) VALUES(?1,?2,?3,?4,?5)
     ON CONFLICT(point_id) DO UPDATE SET road_id=excluded.road_id,facilities_json=excluded.facilities_json,brands_json=excluded.brands_json,updated_at=excluded.updated_at`)
     .bind(body.pointId,body.roadId,JSON.stringify(body.facilities),JSON.stringify(body.brands),updatedAt).run();
+  if(changesDisplay) {
+    await env.DB.prepare(`INSERT INTO point_display_overrides(point_id,road_id,display_name,is_hidden,updated_at) VALUES(?1,?2,?3,?4,?5)
+      ON CONFLICT(point_id) DO UPDATE SET road_id=excluded.road_id,display_name=excluded.display_name,is_hidden=excluded.is_hidden,updated_at=excluded.updated_at`)
+      .bind(body.pointId,body.roadId,body.displayName??null,body.hidden?1:0,updatedAt).run();
+  }
   return json({...body,updatedAt,editor:!!editor});
 }
 
