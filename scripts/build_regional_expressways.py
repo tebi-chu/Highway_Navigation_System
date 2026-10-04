@@ -106,16 +106,52 @@ NEW_SERVICE_LINKS = {
     "e23-ise-south", "e23-ise-north",
 }
 
-# Parallel expressways can run within a few hundred metres of one another.
-# A geometric projection alone would therefore put Tomei's 駒門/愛鷹 and
-# 藤枝 facilities onto Shin-Tomei.  Keep Shin-Tomei to its signed facilities.
-SHINTOMEI_POINT_NAMES = {
-    "海老名南", "厚木南", "伊勢原", "伊勢原大山", "秦野丹沢", "新秦野",
-    "御殿場", "新御殿場", "駿河湾沼津", "新富士", "新清水", "清水",
-    "新静岡", "静岡", "藤枝岡部", "島田金谷", "掛川", "森掛川",
-    "遠州森町", "新磐田", "浜松浜北", "浜松", "浜松いなさ", "新城",
-    "長篠設楽原", "岡崎東", "岡崎", "豊田東",
+# 東名 and 新東名 run close together in several places, so proximity alone
+# cannot establish road membership. These type-aware catalogues are the
+# authoritative boundary used after projecting an OSM point onto a route.
+# They intentionally exclude unopened/planned facilities.
+TOMEI_POINTS = {
+    "IC": {
+        "東京", "東名川崎", "横浜青葉", "横浜町田", "綾瀬", "厚木",
+        "秦野中井", "大井松田", "御殿場", "裾野", "沼津", "富士", "清水",
+        "日本平久能山", "静岡", "焼津", "大井川焼津藤枝スマート", "吉田",
+        "相良牧之原", "菊川", "掛川", "袋井", "磐田", "浜松", "浜松西",
+        "舘山寺", "三ヶ日", "豊川", "音羽蒲郡", "岡崎", "豊田", "東名三好",
+        "名古屋", "春日井", "小牧",
+    },
+    "JCT": {"横浜青葉", "海老名", "伊勢原", "御殿場", "清水", "三ヶ日", "豊田", "日進", "小牧"},
+    "SA": {"海老名", "足柄", "富士川", "牧之原", "浜名湖", "豊田上郷"},
+    "PA": {
+        "港北", "中井", "鮎沢", "駒門", "愛鷹", "由比", "日本平", "日本坂",
+        "小笠", "遠州豊田", "三方原", "新城", "豊橋", "赤塚", "美合", "東郷", "守山",
+    },
 }
+
+SHINTOMEI_POINTS = {
+    "IC": {
+        "海老名南", "厚木南", "伊勢原大山", "新秦野", "新御殿場", "新富士",
+        "新清水", "新静岡", "藤枝岡部", "島田金谷", "森掛川", "新磐田",
+        "浜松浜北", "浜松いなさ", "新城", "岡崎東",
+    },
+    "JCT": {"伊勢原", "御殿場", "新清水", "浜松いなさ", "豊田東"},
+    "SA": {"駿河湾沼津", "静岡", "浜松", "岡崎"},
+    "PA": {"清水", "掛川", "遠州森町", "長篠設楽原"},
+}
+
+
+def canonical_point_name(graph_id, raw_name, kind):
+    """Return a canonical signed name, or None when it is not on this road."""
+    name = base.normalize_name(raw_name)
+    if graph_id == "e1-tomei":
+        # OSM contains several ramp-specific labels for the one 綾瀬 smart IC.
+        if name.startswith("綾瀬"):
+            name = "綾瀬"
+        if name == "三ケ日":
+            name = "三ヶ日"
+        return name if name in TOMEI_POINTS.get(kind, set()) else None
+    if graph_id == "e1a-shintomei":
+        return name if name in SHINTOMEI_POINTS.get(kind, set()) else None
+    return name
 
 
 def facilities_for(link_id, name, kind):
@@ -239,13 +275,16 @@ def main():
         selected = {}
         for source_id, raw_name, kind, coordinate, romanized, point_direction in candidates:
             lateral, offset = base.project(coordinate, route)
-            limit = 1500 if graph_id == "e1a-shintomei" else (1100 if kind in {"SA", "PA"} else 450)
+            strict_road_catalogue = graph_id in {"e1-tomei", "e1a-shintomei"}
+            limit = 1500 if strict_road_catalogue else (1100 if kind in {"SA", "PA"} else 450)
             if lateral > limit:
                 continue
-            name = base.normalize_name(raw_name)
-            if graph_id == "e1a-shintomei" and name not in SHINTOMEI_POINT_NAMES:
+            name = canonical_point_name(graph_id, raw_name, kind)
+            if name is None:
                 continue
-            if graph_id == "e1a-shintomei" and name == "御殿場" and kind != "JCT":
+            # Direction-labelled OSM objects represent a single carriageway.
+            # Do not duplicate them onto the opposite direction.
+            if strict_road_catalogue and point_direction and point_direction != direction:
                 continue
             key = name, kind
             if key in selected and selected[key][0] <= lateral:
