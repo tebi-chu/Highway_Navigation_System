@@ -129,13 +129,29 @@ TOMEI_POINTS = {
 
 SHINTOMEI_POINTS = {
     "IC": {
-        "海老名南", "厚木南", "伊勢原大山", "新秦野", "新御殿場", "新富士",
+        "海老名南", "厚木南", "伊勢原大山", "新秦野", "新御殿場", "長泉沼津", "駿河湾沼津", "新富士",
         "新清水", "新静岡", "藤枝岡部", "島田金谷", "森掛川", "新磐田",
-        "浜松浜北", "浜松いなさ", "新城", "岡崎東",
+        "静岡", "遠州森町", "浜松浜北", "浜松", "浜松いなさ", "新城", "岡崎東", "岡崎",
     },
-    "JCT": {"伊勢原", "御殿場", "新清水", "浜松いなさ", "豊田東"},
+    "JCT": {"海老名南", "伊勢原", "御殿場", "新清水", "浜松いなさ", "豊田東"},
     "SA": {"駿河湾沼津", "静岡", "浜松", "岡崎"},
-    "PA": {"清水", "掛川", "遠州森町", "長篠設楽原"},
+    "PA": {"清水", "藤枝", "掛川", "遠州森町", "長篠設楽原"},
+}
+
+# Some directional PA polygons are OSM relations without a usable centre in
+# the downloaded extract. Their named motorway-junction nodes are reliable
+# fallbacks and prevent one carriageway from losing the area entirely.
+SHINTOMEI_AREA_NODE_FALLBACKS = {"藤枝", "掛川"}
+SHINTOMEI_SMART_AREAS = {"駿河湾沼津", "静岡", "遠州森町", "浜松", "岡崎"}
+SHINTOMEI_KANAGAWA_EXPECTED = {
+    ("海老名南", "JCT"), ("厚木南", "IC"), ("伊勢原", "JCT"),
+    ("伊勢原大山", "IC"), ("新秦野", "IC"),
+}
+SHINTOMEI_MAIN_EXPECTED = {
+    (name, kind) for kind, names in SHINTOMEI_POINTS.items() for name in names
+    # 岡崎SA does not have a smart IC, so do not synthesize an 岡崎IC.
+    if name not in {"海老名南", "厚木南", "伊勢原", "伊勢原大山", "新秦野"}
+    and not (name == "岡崎" and kind == "IC")
 }
 
 
@@ -246,15 +262,33 @@ def main():
         if osm_highway not in {"motorway_junction", "services", "rest_area"}:
             continue
         english = base.romanized_parts(tags.get("name:en"))
-        for index, (name, kind) in enumerate(base.point_names(tags["name"])):
-            if kind in {"SA", "PA"} and osm_highway not in {"services", "rest_area"}:
+        parsed_points = base.point_names(tags["name"])
+        for index, (name, kind) in enumerate(parsed_points):
+            normalized_candidate = base.normalize_name(name)
+            area_node_fallback = (
+                kind in {"SA", "PA"}
+                and osm_highway == "motorway_junction"
+                and normalized_candidate in SHINTOMEI_AREA_NODE_FALLBACKS
+            )
+            if kind in {"SA", "PA"} and osm_highway not in {"services", "rest_area"} and not area_node_fallback:
                 continue
-            if kind in {"SA", "PA"} and element.get("type") == "node":
+            if kind in {"SA", "PA"} and element.get("type") == "node" and not area_node_fallback:
                 continue
             if kind in {"IC", "JCT"} and osm_highway != "motorway_junction":
                 continue
             romanized = english[min(index, len(english) - 1)] if english else base.ROMAJI_FALLBACKS.get(name, "")
             candidates.append((element["id"], name, kind, coordinate, romanized, base.direction_hint(tags["name"])))
+        # OSM commonly labels a SA/PA smart-IC junction as one combined name.
+        # Add its IC identity separately so the UI can merge the two signed
+        # types into one card instead of silently dropping the smart IC.
+        if osm_highway == "motorway_junction" and "スマート" in tags["name"]:
+            for smart_name in SHINTOMEI_SMART_AREAS:
+                if smart_name in tags["name"]:
+                    candidates.append((element["id"], smart_name, "IC", coordinate, base.ROMAJI_FALLBACKS.get(smart_name, ""), base.direction_hint(tags["name"])))
+                    break
+    # The source extract currently contains mojibake for 海老名南JCT. Keep a
+    # stable, verified junction coordinate until that upstream object is fixed.
+    candidates.append(("manual-ebina-minami-jct", "海老名南", "JCT", (35.4098208, 139.3740684), "Ebina-minami", None))
 
     links, points = [], []
     for link_id, graph_id, highway, direction, destination, start, end, speed in DEFINITIONS:
@@ -302,6 +336,16 @@ def main():
 
     order = {link["id"]: index for index, link in enumerate(links)}
     points.sort(key=lambda point: (order[point["linkID"]], point["offsetMeters"], point["kind"]))
+    for link_id in ("e1a-shintomei-kanagawa-west", "e1a-shintomei-kanagawa-east"):
+        actual = {(point["name"], point["kind"]) for point in points if point["linkID"] == link_id}
+        missing = SHINTOMEI_KANAGAWA_EXPECTED - actual
+        if missing:
+            raise RuntimeError(f"Missing open Shin-Tomei Kanagawa points on {link_id}: {sorted(missing)}")
+    for link_id in ("e1a-shintomei-west", "e1a-shintomei-east"):
+        actual = {(point["name"], point["kind"]) for point in points if point["linkID"] == link_id}
+        missing = SHINTOMEI_MAIN_EXPECTED - actual
+        if missing:
+            raise RuntimeError(f"Missing open Shin-Tomei points on {link_id}: {sorted(missing)}")
     # Preserve the already tested Aomori JCT–Aomori-chuo IC continuation.
     previous = json.loads((ROOT / "web" / "data" / "ebina-aomori.json").read_text(encoding="utf-8"))
     links.extend(link for link in previous["links"] if link["id"] in {"e4a-east", "e4a-west"})
