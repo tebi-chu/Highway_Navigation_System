@@ -154,6 +154,37 @@ SHINTOMEI_MAIN_EXPECTED = {
     and not (name == "岡崎" and kind == "IC")
 }
 
+E4_SERVICE_AREAS = {
+    "蓮田", "羽生", "佐野", "都賀西方", "大谷", "上河内", "矢板北", "黒磯",
+    "那須高原", "阿武隈", "鏡石", "安積", "安達太良", "福島松川", "吾妻",
+    "国見", "蔵王", "菅生", "泉", "鶴巣", "三本木", "長者原", "志波姫",
+    "金成", "中尊寺", "前沢", "北上金ヶ崎", "花巻", "紫波", "矢巾", "滝沢",
+    "岩手山", "前森山", "畑", "田山", "湯瀬", "花輪", "小坂", "阿闍羅",
+    "津軽", "高舘",
+}
+
+# These four directional facility nodes and the two adjoining IC nodes are
+# absent from the regional source extract. Coordinates are the current OSM
+# nodes verified against the NEXCO East SA/PA catalogue.
+E4_MANUAL_POINTS = {
+    "下り": [
+        (1022661265, "紫波", "SA", (39.5110307, 141.1016950), "Shiwa"),
+        (218548250, "矢巾", "PA", (39.6146980, 141.1295999), "Yahaba"),
+    ],
+    "上り": [
+        (1022661027, "紫波", "SA", (39.5189311, 141.1034715), "Shiwa"),
+        (1270325745, "矢巾", "PA", (39.6226151, 141.1294552), "Yahaba"),
+    ],
+}
+E4_MANUAL_ICS = [
+    (4252012072, "紫波", "IC", (39.5527596, 141.1129561), "Shiwa"),
+    (7142509462, "矢巾", "IC", (39.6176069, 141.1296931), "Yahaba"),
+]
+E4_MANUAL_FACILITIES = {
+    ("紫波", "SA"): ["restroom", "accessibility", "restaurant", "cafe", "evCharging"],
+    ("矢巾", "PA"): ["restroom", "accessibility"],
+}
+
 
 def canonical_point_name(graph_id, raw_name, kind):
     """Return a canonical signed name, or None when it is not on this road."""
@@ -324,9 +355,15 @@ def main():
             if key in selected and selected[key][0] <= lateral:
                 continue
             selected[key] = lateral, offset, source_id, romanized, coordinate
+        if graph_id == "e4":
+            for source_id, name, kind, coordinate, romanized in E4_MANUAL_POINTS[direction] + E4_MANUAL_ICS:
+                lateral, offset = base.project(coordinate, route)
+                if lateral > 1500:
+                    raise RuntimeError(f"Manual E4 point is too far from route: {name} {kind} {lateral:.0f}m")
+                selected[(name, kind)] = lateral, offset, source_id, romanized, coordinate
         for (name, kind), (_, offset, source_id, romanized, coordinate) in selected.items():
             offset = base.exit_branch_offset(name, coordinate, route, ramps, offset)
-            facilities = facilities_for(link_id, name, kind)
+            facilities = E4_MANUAL_FACILITIES.get((name, kind), facilities_for(link_id, name, kind))
             points.append({
                 "id": f"{link_id}-{source_id}-{kind.lower()}", "name": name, "kind": kind,
                 "linkID": link_id, "offsetMeters": round(offset, 1),
@@ -346,6 +383,11 @@ def main():
         missing = SHINTOMEI_MAIN_EXPECTED - actual
         if missing:
             raise RuntimeError(f"Missing open Shin-Tomei points on {link_id}: {sorted(missing)}")
+    for link_id in ("e4-north", "e4-south"):
+        actual = {point["name"] for point in points if point["linkID"] == link_id and point["kind"] in {"SA", "PA"}}
+        missing = E4_SERVICE_AREAS - actual
+        if missing:
+            raise RuntimeError(f"Missing Tohoku SA/PA on {link_id}: {sorted(missing)}")
     # Preserve the already tested Aomori JCT–Aomori-chuo IC continuation.
     previous = json.loads((ROOT / "web" / "data" / "ebina-aomori.json").read_text(encoding="utf-8"))
     links.extend(link for link in previous["links"] if link["id"] in {"e4a-east", "e4a-west"})
