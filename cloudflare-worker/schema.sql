@@ -20,6 +20,16 @@ CREATE TABLE IF NOT EXISTS point_display_overrides (
 CREATE INDEX IF NOT EXISTS point_display_overrides_road_id
 ON point_display_overrides(road_id);
 
+CREATE TABLE IF NOT EXISTS point_notes (
+  point_id TEXT PRIMARY KEY,
+  road_id TEXT NOT NULL,
+  note_text TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS point_notes_road_id
+ON point_notes(road_id);
+
 CREATE TABLE IF NOT EXISTS anonymous_edit_limits (
   fingerprint TEXT NOT NULL,
   window_start INTEGER NOT NULL,

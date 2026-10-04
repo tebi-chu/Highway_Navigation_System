@@ -122,6 +122,7 @@ function applyOverrides(overrides) {
     point.romanizedName=override?.displayName? '':point._sourceRomanizedName;
     point.hidden=override?.hidden===true;
     point.displayName=override?.displayName||null;
+    point.note=typeof override?.note==='string'?override.note:'';
     if(override&&Array.isArray(override.facilities)&&Array.isArray(override.brands)) {
       point.facilities=[...override.facilities];
       point.brands=[...override.brands];
@@ -190,6 +191,7 @@ function openFacilityEditor(item,privileged) {
   $('edit-mode').textContent=privileged?'Google登録編集者モード（連続編集可能）':'一般編集モード（1時間に5回まで）';
   $('facility-options').innerHTML=optionMarkup(editableFacilities,facilityLabels,item.facilities||[]);
   $('brand-options').innerHTML=optionMarkup(editableBrands,brandLabels,item.brands||[]);
+  $('edit-note').value=item.note||'';
   $('display-options').hidden=!privileged;
   $('edit-display-name').value=item.displayName||'';
   $('edit-display-name').placeholder=item._sourceName||item.name;
@@ -197,6 +199,7 @@ function openFacilityEditor(item,privileged) {
   const hasFacilities=['SA','PA'].includes(item.kind)||(item.kinds||[]).some(kind=>kind==='SA'||kind==='PA');
   $('facility-fieldset').hidden=!hasFacilities;
   $('brand-fieldset').hidden=!hasFacilities;
+  $('note-fieldset').hidden=!hasFacilities;
   $('edit-error').textContent='';
   $('facility-dialog').showModal();
 }
@@ -210,7 +213,7 @@ $('facility-form').addEventListener('submit',async event=>{
   try {
     const headers={'content-type':'application/json','x-highway-device-id':anonymousDeviceID()};
     if(editorToken)headers.authorization=`Bearer ${editorToken}`;
-    const payload={pointId:currentEditPoint.id,roadId:currentEditPoint.linkID,facilities:checked('facility-options'),brands:checked('brand-options')};
+    const payload={pointId:currentEditPoint.id,roadId:currentEditPoint.linkID,facilities:checked('facility-options'),brands:checked('brand-options'),note:$('edit-note').value.trim()};
     if(currentEditPrivileged) {
       const displayName=$('edit-display-name').value.trim();
       payload.displayName=displayName||null;
@@ -219,7 +222,7 @@ $('facility-form').addEventListener('submit',async event=>{
     const response=await fetch(apiUrl('/v1/overrides'),{method:'POST',headers,body:JSON.stringify(payload)});
     const data=await response.json();
     if(!response.ok)throw new Error(data.error||'保存できませんでした。');
-    currentEditPoint.facilities=[...data.facilities];currentEditPoint.brands=[...data.brands];
+    currentEditPoint.facilities=[...data.facilities];currentEditPoint.brands=[...data.brands];currentEditPoint.note=data.note||'';
     if(currentEditPrivileged) {
       currentEditPoint.displayName=data.displayName||null;
       currentEditPoint.name=data.displayName||currentEditPoint._sourceName;
@@ -304,6 +307,7 @@ function findUpcoming(match) {
     partner.kinds=[...new Set([...partner.kinds,item.kind])];
     partner.facilities=[...new Set([...(partner.facilities||[]),...(item.facilities||[])])];
     partner.brands=[...new Set([...(partner.brands||[]),...(item.brands||[])])];
+    partner.note=partner.note||item.note||'';
     const area=[partner,item].find(point=>point.kind==='PA'||point.kind==='SA');
     if(area) {
       partner.id=area.id;
@@ -395,7 +399,8 @@ function render(match, accuracy, statusText='') {
     const branded=new Set(visibleBrands.flatMap(brand=>['starbucks','tullys','doutor'].includes(brand)?['cafe']:['sevenEleven','lawson','familyMart','gooz','ministop'].includes(brand)?['convenienceStore']:['yoshinoya','matsuya','sukiya'].includes(brand)?['restaurant']:[]));
     const brands=visibleBrands.map(brand=>`<b class="brand-badge brand-${brand}">${brandLabels[brand]}</b>`);
     const icons=item.facilities.filter(facility=>displayedFacilities.has(facility)&&!branded.has(facility)).map(facility=>`<span class="facility-icon" title="${facilityLabels[facility]||''}">${facilityIcons[facility]||''}</span>`);
-    const facilities=[...brands,...icons].join('');
+    const note=item.note?`<b class="facility-note" title="${escapeHTML(item.note)}">★ ${escapeHTML(item.note)}</b>`:'';
+    const facilities=[...brands,...icons,note].join('');
     article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name"><span>${escapeHTML(item.name)}</span>${item.romanizedName?`<small>${escapeHTML(item.romanizedName)}</small>`:''}</strong></div><div class="live-details${facilities?'':' no-facilities'}">${facilities?`<div class="facility-row">${facilities}</div>`:''}<div class="live-metrics"><b class="arrival-time">${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b><b class="next-distance">${(Math.max(0,item.remaining)/1000).toFixed(1)}<small>km</small></b></div></div>`;
     addLongPress(article,item);
     return article;
@@ -615,7 +620,7 @@ function renderEditorPreview() {
   const facilities=(point.facilities||[]).filter(value=>editableFacilities.includes(value)).map(value=>facilityLabels[value]);
   const brands=(point.brands||[]).filter(value=>editableBrands.includes(value)).map(value=>brandLabels[value]);
   const source=point._sourceName&&point._sourceName!==point.name?`<p class="source-name"><b>元名称</b>${escapeHTML(point._sourceName)}</p>`:'';
-  const service=['SA','PA'].includes(point.kind)?`<p><b>設備</b>${facilities.join('、')||'なし'}</p><p><b>店舗</b>${brands.join('、')||'なし'}</p>`:'';
+  const service=['SA','PA'].includes(point.kind)?`<p><b>設備</b>${facilities.join('、')||'なし'}</p><p><b>店舗</b>${brands.join('、')||'なし'}</p><p class="note-preview"><b>メモ</b>${escapeHTML(point.note||'なし')}</p>`:'';
   $('editor-preview').innerHTML=`<div><span>${escapeHTML(point.kind)}</span><strong>${escapeHTML(point.name)}</strong></div>${point.hidden?'<p class="hidden-state"><b>表示</b>ナビ画面では非表示</p>':''}${source}${service}`;
 }
 

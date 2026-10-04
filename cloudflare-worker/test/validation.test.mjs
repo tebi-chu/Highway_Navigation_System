@@ -19,3 +19,11 @@ test('accepts display name and hidden state',()=>{
   });
   assert.throws(()=>normalizeUpdate({pointId:'e4-north-1',roadId:'e4-north',facilities:[],brands:[],displayName:'<script>',hidden:false}));
 });
+
+test('accepts and validates a short note',()=>{
+  assert.deepEqual(normalizeUpdate({pointId:'e4-north-1',roadId:'e4-north',facilities:[],brands:[],note:'  景色がきれい  '}),{
+    pointId:'e4-north-1',roadId:'e4-north',facilities:[],brands:[],note:'景色がきれい',
+  });
+  assert.throws(()=>normalizeUpdate({pointId:'e4-north-1',roadId:'e4-north',facilities:[],brands:[],note:'あ'.repeat(41)}));
+  assert.throws(()=>normalizeUpdate({pointId:'e4-north-1',roadId:'e4-north',facilities:[],brands:[],note:'<b>危険</b>'}));
+});

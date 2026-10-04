@@ -25,7 +25,13 @@ export function normalizeUpdate(body) {
     if(typeof body.hidden!=='boolean')throw new Error('invalid visibility');
     hidden=body.hidden;
   }
-  return {pointId:body.pointId,roadId:body.roadId,facilities,brands,...(displayName!==undefined?{displayName}:{}),...(hidden!==undefined?{hidden}: {})};
+  let note;
+  if(Object.hasOwn(body,'note')) {
+    if(typeof body.note!=='string')throw new Error('invalid note');
+    note=body.note.trim();
+    if(note.length>40||/[<>\u0000-\u001f]/.test(note))throw new Error('invalid note');
+  }
+  return {pointId:body.pointId,roadId:body.roadId,facilities,brands,...(displayName!==undefined?{displayName}:{}),...(hidden!==undefined?{hidden}: {}),...(note!==undefined?{note}: {})};
 }
 
 function cors(request,env) {
@@ -92,13 +98,22 @@ async function listOverrides(env,url) {
   const displayStatement=roadId
     ? env.DB.prepare('SELECT point_id,road_id,display_name,is_hidden,updated_at FROM point_display_overrides WHERE road_id=?1').bind(roadId)
     : env.DB.prepare('SELECT point_id,road_id,display_name,is_hidden,updated_at FROM point_display_overrides');
-  const [{results:facilityRows=[]},{results:displayRows=[]}]=await Promise.all([facilityStatement.all(),displayStatement.all()]);
+  const noteStatement=roadId
+    ? env.DB.prepare('SELECT point_id,road_id,note_text,updated_at FROM point_notes WHERE road_id=?1').bind(roadId)
+    : env.DB.prepare('SELECT point_id,road_id,note_text,updated_at FROM point_notes');
+  const [{results:facilityRows=[]},{results:displayRows=[]},{results:noteRows=[]}]=await Promise.all([facilityStatement.all(),displayStatement.all(),noteStatement.all()]);
   const merged=new Map();
   for(const row of facilityRows)merged.set(row.point_id,{pointId:row.point_id,roadId:row.road_id,facilities:JSON.parse(row.facilities_json),brands:JSON.parse(row.brands_json),updatedAt:row.updated_at});
   for(const row of displayRows) {
     const current=merged.get(row.point_id)||{pointId:row.point_id,roadId:row.road_id};
     current.displayName=row.display_name;
     current.hidden=!!row.is_hidden;
+    current.updatedAt=Math.max(current.updatedAt||0,row.updated_at);
+    merged.set(row.point_id,current);
+  }
+  for(const row of noteRows) {
+    const current=merged.get(row.point_id)||{pointId:row.point_id,roadId:row.road_id};
+    current.note=row.note_text;
     current.updatedAt=Math.max(current.updatedAt||0,row.updated_at);
     merged.set(row.point_id,current);
   }
@@ -115,6 +130,11 @@ async function saveOverride(request,env) {
   await env.DB.prepare(`INSERT INTO facility_overrides(point_id,road_id,facilities_json,brands_json,updated_at) VALUES(?1,?2,?3,?4,?5)
     ON CONFLICT(point_id) DO UPDATE SET road_id=excluded.road_id,facilities_json=excluded.facilities_json,brands_json=excluded.brands_json,updated_at=excluded.updated_at`)
     .bind(body.pointId,body.roadId,JSON.stringify(body.facilities),JSON.stringify(body.brands),updatedAt).run();
+  if(Object.hasOwn(body,'note')) {
+    await env.DB.prepare(`INSERT INTO point_notes(point_id,road_id,note_text,updated_at) VALUES(?1,?2,?3,?4)
+      ON CONFLICT(point_id) DO UPDATE SET road_id=excluded.road_id,note_text=excluded.note_text,updated_at=excluded.updated_at`)
+      .bind(body.pointId,body.roadId,body.note,updatedAt).run();
+  }
   if(changesDisplay) {
     await env.DB.prepare(`INSERT INTO point_display_overrides(point_id,road_id,display_name,is_hidden,updated_at) VALUES(?1,?2,?3,?4,?5)
       ON CONFLICT(point_id) DO UPDATE SET road_id=excluded.road_id,display_name=excluded.display_name,is_hidden=excluded.is_hidden,updated_at=excluded.updated_at`)
