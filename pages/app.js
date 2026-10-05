@@ -29,6 +29,7 @@ let lastRenderArgs = null;
 let currentEditPoint = null, currentEditPrivileged = false, selectedEditorPointID = '', editorToken = sessionStorage.getItem('highway-editor-token')||'';
 let editorRoadGroups = new Map();
 let editorRoadRegion = 'すべて';
+let pendingLocationCorrection = null, googleScriptPromise = null;
 let overrideRefreshTimer = null;
 const GPS_ACCURACY_LIMIT_METERS = 100;
 const GPS_SILENCE_BEFORE_ESTIMATE_MS = 3000;
@@ -119,12 +120,14 @@ function applyOverrides(overrides) {
   for(const point of points) {
     point._sourceName??=point.name;
     point._sourceRomanizedName??=point.romanizedName||'';
+    point._sourceOffsetMeters??=point.offsetMeters;
     const override=byID.get(point.id);
     point.name=override?.displayName||point._sourceName;
     point.romanizedName=override?.displayName? '':point._sourceRomanizedName;
     point.hidden=override?.hidden===true;
     point.displayName=override?.displayName||null;
     point.note=typeof override?.note==='string'?override.note:'';
+    point.offsetMeters=Number.isFinite(override?.offsetMeters)?override.offsetMeters:point._sourceOffsetMeters;
     if(override&&Array.isArray(override.facilities)&&Array.isArray(override.brands)) {
       point.facilities=[...override.facilities];
       point.brands=[...override.brands];
@@ -167,7 +170,7 @@ function addLongPress(article,item) {
   if(!['SA','PA'].includes(item.kind))return;
   let timer=null,moved=false,startX=0,startY=0;
   article.classList.add('editable-card');
-  article.addEventListener('pointerdown',event=>{moved=false;startX=event.clientX;startY=event.clientY;timer=setTimeout(()=>{timer=null;if(!moved)openFacilityEditor(item,false);},700);});
+  article.addEventListener('pointerdown',event=>{article._longPressTriggered=false;moved=false;startX=event.clientX;startY=event.clientY;timer=setTimeout(()=>{timer=null;if(!moved){article._longPressTriggered=true;openFacilityEditor(item,false);}},700);});
   article.addEventListener('pointermove',event=>{if(Math.hypot(event.clientX-startX,event.clientY-startY)<=12)return;moved=true;if(timer)clearTimeout(timer);timer=null;});
   for(const event of ['pointerup','pointercancel','pointerleave'])article.addEventListener(event,()=>{if(timer)clearTimeout(timer);timer=null;});
   article.addEventListener('contextmenu',event=>event.preventDefault());
@@ -303,10 +306,11 @@ function findUpcoming(match) {
         && combined.has('IC') && (combined.has('PA')||combined.has('SA'));
     });
     if(!partner) {
-      merged.push({...item,kinds:[item.kind]});
+      merged.push({...item,kinds:[item.kind],correctionPoints:[{pointId:item.id,originalOffsetMeters:item.offsetMeters}]});
       continue;
     }
     partner.kinds=[...new Set([...partner.kinds,item.kind])];
+    partner.correctionPoints.push({pointId:item.id,originalOffsetMeters:item.offsetMeters});
     partner.facilities=[...new Set([...(partner.facilities||[]),...(item.facilities||[])])];
     partner.brands=[...new Set([...(partner.brands||[]),...(item.brands||[])])];
     partner.note=partner.note||item.note||'';
@@ -375,9 +379,80 @@ function fitRomanizedLabels(root) {
   }
 }
 
+function closeLocationCorrection() {
+  pendingLocationCorrection=null;
+  if($('location-dialog').open)$('location-dialog').close();
+  if(lastRenderArgs)render(lastRenderArgs.match,lastRenderArgs.accuracy,lastRenderArgs.statusText);
+}
+
+async function updateLocationCorrectionAuth(correction) {
+  const editor=await validateEditorToken();
+  if(pendingLocationCorrection!==correction)return;
+  if(editor) {
+    $('location-auth').textContent=`登録編集者：${editor.email}`;
+    $('location-google-signin').replaceChildren();
+    $('location-save').disabled=false;
+    return;
+  }
+  $('location-auth').textContent='確定にはGoogle登録編集者としてのログインが必要です。';
+  $('location-save').disabled=true;
+  renderGoogleSignIn('location-google-signin',async response=>{
+    editorToken=response.credential;sessionStorage.setItem('highway-editor-token',editorToken);
+    const authorized=await validateEditorToken();
+    if(pendingLocationCorrection!==correction)return;
+    if(!authorized) {
+      $('location-error').textContent='このGoogleアカウントには編集権限が登録されていません。';
+      return;
+    }
+    $('location-auth').textContent=`登録編集者：${authorized.email}`;
+    $('location-google-signin').replaceChildren();
+    $('location-save').disabled=false;
+  });
+}
+
+function openLocationCorrection(item,match,accuracy,article) {
+  if(!config.apiBaseUrl||!config.googleClientId) {setStatus('到着位置補正の初期設定が完了していません。');return;}
+  if(!Number.isFinite(accuracy)||accuracy>30) {setStatus('到着位置の補正にはGPS精度30m以内が必要です。');return;}
+  if(!lastGoodCoordinate||!lastGoodGpsAt||Date.now()-lastGoodGpsAt>10000) {setStatus('最新のGPS位置を取得してから、もう一度タップしてください。');return;}
+  if(item.linkID!==match.link.id) {setStatus('道路が切り替わった後に、この地点の到着位置を補正してください。');return;}
+  const correctionPoints=(item.correctionPoints||[{pointId:item.id,originalOffsetMeters:item.offsetMeters}]).filter(point=>point.pointId);
+  if(correctionPoints.some(point=>Math.abs(point.originalOffsetMeters-match.offset)>3000)) {setStatus('登録位置との差が3kmを超えるため、この画面からは補正できません。');return;}
+  const difference=Math.abs(item.remaining);
+  const correction={roadId:item.linkID,points:correctionPoints,offsetMeters:match.offset,latitude:lastGoodCoordinate.latitude,longitude:lastGoodCoordinate.longitude,accuracyMeters:accuracy,capturedAt:Date.now(),itemID:item.id};
+  pendingLocationCorrection=correction;
+  article.classList.add('location-preview');
+  article.querySelector('.arrival-time').innerHTML=`${eta(0)}<small>通過</small>`;
+  article.querySelector('.next-distance').innerHTML='0.0<small>km</small>';
+  $('location-kinds').textContent=(item.kinds||[item.kind]).join('・');
+  $('location-name').textContent=item.name;
+  $('location-accuracy').textContent=`±${Math.round(accuracy)}m`;
+  $('location-difference').textContent=`${(difference/1000).toFixed(1)}km`;
+  $('location-warning').hidden=difference<500;
+  $('location-warning').textContent=difference>=500?`登録位置を${Math.round(difference)}m移動します。地点を実際に通過した瞬間であることを再確認してください。`:'';
+  $('location-error').textContent='';$('location-auth').textContent='Google登録編集者を確認しています…';$('location-google-signin').replaceChildren();$('location-save').disabled=true;
+  $('location-dialog').showModal();
+  updateLocationCorrectionAuth(correction);
+}
+
+$('location-cancel').addEventListener('click',closeLocationCorrection);
+$('location-dialog').addEventListener('cancel',event=>{event.preventDefault();closeLocationCorrection();});
+$('location-form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  const correction=pendingLocationCorrection;if(!correction)return;
+  $('location-save').disabled=true;$('location-error').textContent='保存しています…';
+  try {
+    const response=await fetch(apiUrl('/v1/location-corrections'),{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${editorToken}`},body:JSON.stringify(correction)});
+    const data=await response.json();if(!response.ok)throw new Error(data.error||'到着位置を保存できませんでした。');
+    pendingLocationCorrection=null;$('location-dialog').close();
+    await syncOverrides(true);
+    setStatus(`${$('location-name').textContent}の到着位置を修正しました。`);
+  } catch(error) {$('location-error').textContent=error.message;$('location-save').disabled=false;}
+});
+
 function render(match, accuracy, statusText='') {
   lastRenderArgs={match,accuracy,statusText};
   const upcoming=findUpcoming(match);
+  const nearestUpcomingID=upcoming[0]?.id||'';
   const landscape=window.matchMedia('(orientation: landscape)').matches;
   const portraitPoints=upcoming.slice(0,5);
   const slots=[...Array(5-portraitPoints.length).fill(null),...portraitPoints.reverse()];
@@ -389,7 +464,7 @@ function render(match, accuracy, statusText='') {
   setStatus(statusText||`GPS精度 ±${Math.round(accuracy)}m`);
   $('gps-dot').classList.add('active');
   $('speed').textContent=`${Math.round(match.speed*3.6)} km/h`;
-  const createCard=(item, compact=false) => {
+  const createCard=(item, compact=false,correctionEligible=false) => {
     if(!item) {const empty=document.createElement('div');empty.className='empty-slot';return empty;}
     const displayKinds=[...(item.kinds||[item.kind])].sort((a,b)=>(a==='SA'||a==='PA'?-1:0)-(b==='SA'||b==='PA'?-1:0));
     const article=document.createElement('article');article.className=`live-card kind-${item.kind.toLowerCase()}${compact?' compact-card':''}`;
@@ -403,18 +478,31 @@ function render(match, accuracy, statusText='') {
     const icons=item.facilities.filter(facility=>displayedFacilities.has(facility)&&!branded.has(facility)).map(facility=>`<span class="facility-icon" title="${facilityLabels[facility]||''}">${facilityIcons[facility]||''}</span>`);
     const note=item.note?`<b class="facility-note" title="${escapeHTML(item.note)}">★ ${escapeHTML(item.note)}</b>`:'';
     const facilities=[...brands,...icons,note].join('');
-    article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name"><span>${escapeHTML(item.name)}</span>${item.romanizedName?`<small>${escapeHTML(item.romanizedName)}</small>`:''}</strong></div><div class="live-details${facilities?'':' no-facilities'}">${facilities?`<div class="facility-row">${facilities}</div>`:''}<div class="live-metrics"><b class="arrival-time">${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b><b class="next-distance">${(Math.max(0,item.remaining)/1000).toFixed(1)}<small>km</small></b></div></div>`;
+    const previewing=pendingLocationCorrection?.itemID===item.id;
+    const displayRemaining=previewing?0:item.remaining;
+    article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name"><span>${escapeHTML(item.name)}</span>${item.romanizedName?`<small>${escapeHTML(item.romanizedName)}</small>`:''}</strong></div><div class="live-details${facilities?'':' no-facilities'}">${facilities?`<div class="facility-row">${facilities}</div>`:''}<div class="live-metrics"><b class="arrival-time">${eta(displayRemaining/(speedKph*1000/3600))}<small>通過</small></b><b class="next-distance">${(Math.max(0,displayRemaining)/1000).toFixed(1)}<small>km</small></b></div></div>`;
+    if(previewing)article.classList.add('location-preview');
     addLongPress(article,item);
+    if(correctionEligible) {
+      article.classList.add('location-correctable');article.setAttribute('aria-label',`${item.name}。タップで到着位置を補正`);
+      let tapMoved=false,tapX=0,tapY=0;
+      article.addEventListener('pointerdown',event=>{tapMoved=false;tapX=event.clientX;tapY=event.clientY;});
+      article.addEventListener('pointermove',event=>{if(Math.hypot(event.clientX-tapX,event.clientY-tapY)>12)tapMoved=true;});
+      article.addEventListener('click',()=>{
+        if(tapMoved||article._longPressTriggered){article._longPressTriggered=false;return;}
+        if(!$('location-dialog').open)openLocationCorrection(item,match,accuracy,article);
+      });
+    }
     return article;
   };
   if(landscape) {
     const primary=upcoming.slice(0,2).reverse();
     const compact=upcoming.slice(2,5).reverse();
     const compactColumn=document.createElement('div');compactColumn.className='landscape-column compact-column';compactColumn.replaceChildren(...compact.map(item=>createCard(item,true)));
-    const primaryColumn=document.createElement('div');primaryColumn.className='landscape-column primary-column';primaryColumn.replaceChildren(...primary.map(item=>createCard(item)));
+    const primaryColumn=document.createElement('div');primaryColumn.className='landscape-column primary-column';primaryColumn.replaceChildren(...primary.map(item=>createCard(item,false,item.id===nearestUpcomingID)));
     $('point-list').replaceChildren(compactColumn,primaryColumn);
   } else {
-    $('point-list').replaceChildren(...slots.map(item=>createCard(item)));
+    $('point-list').replaceChildren(...slots.map(item=>createCard(item,false,item?.id===nearestUpcomingID)));
   }
   fitRomanizedLabels($('point-list'));
 }
@@ -539,16 +627,21 @@ function decodeGoogleEmail(token) {
 }
 
 async function editorAuthenticated() {
-  if(!editorToken||!config.apiBaseUrl)return false;
+  const data=await validateEditorToken();
+  if(!data)return false;
+  $('editor-account').textContent=`登録編集者：${data.email}`;
+  $('editor-account').hidden=false;$('editor-logout').hidden=false;$('google-signin').hidden=true;$('editor-controls').hidden=false;
+  return true;
+}
+
+async function validateEditorToken() {
+  if(!editorToken||!config.apiBaseUrl)return null;
   try {
     const response=await fetch(apiUrl('/v1/editor/status'),{headers:{authorization:`Bearer ${editorToken}`}});
     if(!response.ok)throw new Error();
-    const data=await response.json();
-    $('editor-account').textContent=`登録編集者：${data.email}`;
-    $('editor-account').hidden=false;$('editor-logout').hidden=false;$('google-signin').hidden=true;$('editor-controls').hidden=false;
-    return true;
+    return response.json();
   } catch {
-    editorToken='';sessionStorage.removeItem('highway-editor-token');return false;
+    editorToken='';sessionStorage.removeItem('highway-editor-token');return null;
   }
 }
 
@@ -562,18 +655,31 @@ $('editor-logout').addEventListener('click',()=>{
   loadGoogleSignIn();
 });
 
-function loadGoogleSignIn() {
+function loadGoogleClient() {
+  if(window.google?.accounts?.id)return Promise.resolve();
+  if(googleScriptPromise)return googleScriptPromise;
+  googleScriptPromise=new Promise((resolve,reject)=>{
+    const script=document.createElement('script');script.src='https://accounts.google.com/gsi/client';script.async=true;script.onload=resolve;script.onerror=reject;document.head.append(script);
+  });
+  return googleScriptPromise;
+}
+
+async function renderGoogleSignIn(targetID,callback) {
   if(!config.googleClientId)return;
-  const initialize=()=>{
-    google.accounts.id.initialize({client_id:config.googleClientId,callback:async response=>{
+  try {
+    await loadGoogleClient();
+    google.accounts.id.initialize({client_id:config.googleClientId,callback});
+    const target=$(targetID);target.replaceChildren();
+    google.accounts.id.renderButton(target,{theme:'outline',size:'large',text:'signin_with',locale:'ja'});
+  } catch {$(targetID).textContent='Googleログインを読み込めませんでした。通信状態を確認してください。';}
+}
+
+function loadGoogleSignIn() {
+  renderGoogleSignIn('google-signin',async response=>{
       editorToken=response.credential;sessionStorage.setItem('highway-editor-token',editorToken);
       if(await editorAuthenticated())await loadEditorData();
       else $('editor-setup').textContent='このGoogleアカウントには編集権限が登録されていません。';
-    }});
-    google.accounts.id.renderButton($('google-signin'),{theme:'outline',size:'large',text:'signin_with',locale:'ja'});
-  };
-  if(window.google?.accounts?.id){initialize();return;}
-  const script=document.createElement('script');script.src='https://accounts.google.com/gsi/client';script.async=true;script.onload=initialize;document.head.append(script);
+  });
 }
 
 async function loadEditorData() {

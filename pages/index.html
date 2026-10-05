@@ -94,6 +94,27 @@
     </form>
   </dialog>
 
+  <dialog id="location-dialog" class="location-dialog">
+    <form id="location-form" method="dialog">
+      <header><div><span id="location-kinds"></span><strong id="location-name"></strong></div></header>
+      <p class="location-question">この地点の到着位置を、いまの現在地に修正しますか？</p>
+      <dl class="location-summary">
+        <div><dt>GPS精度</dt><dd id="location-accuracy"></dd></div>
+        <div><dt>現在の登録位置との差</dt><dd id="location-difference"></dd></div>
+        <div><dt>修正後</dt><dd>0.0km・現在時刻</dd></div>
+      </dl>
+      <p id="location-warning" class="location-warning" hidden></p>
+      <p class="location-note">確定すると、この補正がすべての利用端末に反映されます。施設・店舗・メモは変更されません。</p>
+      <div id="location-auth" class="location-auth"></div>
+      <div id="location-google-signin"></div>
+      <p id="location-error" class="error" role="alert"></p>
+      <div class="location-actions">
+        <button id="location-cancel" class="secondary-button" type="button">キャンセル</button>
+        <button id="location-save" class="primary-button" type="submit" disabled>現在地を到着位置として登録</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>

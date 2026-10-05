@@ -30,6 +30,20 @@ CREATE TABLE IF NOT EXISTS point_notes (
 CREATE INDEX IF NOT EXISTS point_notes_road_id
 ON point_notes(road_id);
 
+CREATE TABLE IF NOT EXISTS point_location_corrections (
+  point_id TEXT PRIMARY KEY,
+  road_id TEXT NOT NULL,
+  offset_meters REAL NOT NULL,
+  latitude REAL NOT NULL,
+  longitude REAL NOT NULL,
+  accuracy_meters REAL NOT NULL,
+  updated_at INTEGER NOT NULL,
+  editor_email TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS point_location_corrections_road_id
+ON point_location_corrections(road_id);
+
 CREATE TABLE IF NOT EXISTS anonymous_edit_limits (
   fingerprint TEXT NOT NULL,
   window_start INTEGER NOT NULL,

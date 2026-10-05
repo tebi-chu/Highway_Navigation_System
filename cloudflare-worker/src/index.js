@@ -34,6 +34,25 @@ export function normalizeUpdate(body) {
   return {pointId:body.pointId,roadId:body.roadId,facilities,brands,...(displayName!==undefined?{displayName}:{}),...(hidden!==undefined?{hidden}: {}),...(note!==undefined?{note}: {})};
 }
 
+export function normalizeLocationCorrection(body) {
+  if(!body||typeof body!=='object')throw new Error('invalid body');
+  if(!/^[a-zA-Z0-9_.:-]{1,80}$/.test(body.roadId||''))throw new Error('invalid road');
+  if(!Array.isArray(body.points)||body.points.length<1||body.points.length>4)throw new Error('invalid points');
+  const points=body.points.map(point=>{
+    if(!point||!/^[a-zA-Z0-9_.:-]{1,160}$/.test(point.pointId||''))throw new Error('invalid point');
+    if(!Number.isFinite(point.originalOffsetMeters)||point.originalOffsetMeters<0)throw new Error('invalid original offset');
+    return {pointId:point.pointId,originalOffsetMeters:point.originalOffsetMeters};
+  });
+  if(new Set(points.map(point=>point.pointId)).size!==points.length)throw new Error('invalid points');
+  if(!Number.isFinite(body.offsetMeters)||body.offsetMeters<0)throw new Error('invalid offset');
+  if(!Number.isFinite(body.latitude)||body.latitude<-90||body.latitude>90)throw new Error('invalid latitude');
+  if(!Number.isFinite(body.longitude)||body.longitude<-180||body.longitude>180)throw new Error('invalid longitude');
+  if(!Number.isFinite(body.accuracyMeters)||body.accuracyMeters<0||body.accuracyMeters>30)throw new Error('invalid accuracy');
+  if(!Number.isFinite(body.capturedAt)||Math.abs(Date.now()-body.capturedAt)>5*60*1000)throw new Error('invalid capture time');
+  if(points.some(point=>Math.abs(point.originalOffsetMeters-body.offsetMeters)>3000))throw new Error('invalid correction distance');
+  return {roadId:body.roadId,points,offsetMeters:body.offsetMeters,latitude:body.latitude,longitude:body.longitude,accuracyMeters:body.accuracyMeters,capturedAt:body.capturedAt};
+}
+
 function cors(request,env) {
   const origin=request.headers.get('origin')||'';
   const allowed=(env.ALLOWED_ORIGINS||'').split(',').map(value=>value.trim()).filter(Boolean);
@@ -101,7 +120,10 @@ async function listOverrides(env,url) {
   const noteStatement=roadId
     ? env.DB.prepare('SELECT point_id,road_id,note_text,updated_at FROM point_notes WHERE road_id=?1').bind(roadId)
     : env.DB.prepare('SELECT point_id,road_id,note_text,updated_at FROM point_notes');
-  const [{results:facilityRows=[]},{results:displayRows=[]},{results:noteRows=[]}]=await Promise.all([facilityStatement.all(),displayStatement.all(),noteStatement.all()]);
+  const locationStatement=roadId
+    ? env.DB.prepare('SELECT point_id,road_id,offset_meters,latitude,longitude,accuracy_meters,updated_at FROM point_location_corrections WHERE road_id=?1').bind(roadId)
+    : env.DB.prepare('SELECT point_id,road_id,offset_meters,latitude,longitude,accuracy_meters,updated_at FROM point_location_corrections');
+  const [{results:facilityRows=[]},{results:displayRows=[]},{results:noteRows=[]},{results:locationRows=[]}]=await Promise.all([facilityStatement.all(),displayStatement.all(),noteStatement.all(),locationStatement.all()]);
   const merged=new Map();
   for(const row of facilityRows)merged.set(row.point_id,{pointId:row.point_id,roadId:row.road_id,facilities:JSON.parse(row.facilities_json),brands:JSON.parse(row.brands_json),updatedAt:row.updated_at});
   for(const row of displayRows) {
@@ -114,6 +136,15 @@ async function listOverrides(env,url) {
   for(const row of noteRows) {
     const current=merged.get(row.point_id)||{pointId:row.point_id,roadId:row.road_id};
     current.note=row.note_text;
+    current.updatedAt=Math.max(current.updatedAt||0,row.updated_at);
+    merged.set(row.point_id,current);
+  }
+  for(const row of locationRows) {
+    const current=merged.get(row.point_id)||{pointId:row.point_id,roadId:row.road_id};
+    current.offsetMeters=row.offset_meters;
+    current.correctedLatitude=row.latitude;
+    current.correctedLongitude=row.longitude;
+    current.correctionAccuracyMeters=row.accuracy_meters;
     current.updatedAt=Math.max(current.updatedAt||0,row.updated_at);
     merged.set(row.point_id,current);
   }
@@ -143,6 +174,19 @@ async function saveOverride(request,env) {
   return json({...body,updatedAt,editor:!!editor});
 }
 
+async function saveLocationCorrection(request,env) {
+  const editor=await editorFromRequest(request,env);
+  if(!editor)return json({error:'到着位置の補正には登録編集者のGoogleログインが必要です。'},403);
+  const body=normalizeLocationCorrection(await request.json());
+  const updatedAt=Date.now();
+  for(const point of body.points) {
+    await env.DB.prepare(`INSERT INTO point_location_corrections(point_id,road_id,offset_meters,latitude,longitude,accuracy_meters,updated_at,editor_email) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
+      ON CONFLICT(point_id) DO UPDATE SET road_id=excluded.road_id,offset_meters=excluded.offset_meters,latitude=excluded.latitude,longitude=excluded.longitude,accuracy_meters=excluded.accuracy_meters,updated_at=excluded.updated_at,editor_email=excluded.editor_email`)
+      .bind(point.pointId,body.roadId,body.offsetMeters,body.latitude,body.longitude,body.accuracyMeters,updatedAt,editor.email).run();
+  }
+  return json({pointIds:body.points.map(point=>point.pointId),roadId:body.roadId,offsetMeters:body.offsetMeters,accuracyMeters:body.accuracyMeters,updatedAt});
+}
+
 export default {
   async fetch(request,env) {
     const headers=cors(request,env);
@@ -157,6 +201,11 @@ export default {
       }
       if(request.method==='POST'&&url.pathname==='/v1/overrides') {
         const response=await saveOverride(request,env);
+        Object.entries(headers).forEach(([key,value])=>response.headers.set(key,value));
+        return response;
+      }
+      if(request.method==='POST'&&url.pathname==='/v1/location-corrections') {
+        const response=await saveLocationCorrection(request,env);
         Object.entries(headers).forEach(([key,value])=>response.headers.set(key,value));
         return response;
       }
