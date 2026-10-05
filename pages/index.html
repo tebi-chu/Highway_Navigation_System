@@ -50,6 +50,15 @@
       <div id="editor-account" class="editor-account" hidden></div>
       <button id="editor-logout" class="secondary-button" type="button" hidden>Googleからログアウト</button>
       <div id="editor-controls" hidden>
+        <section class="road-finder" aria-labelledby="road-finder-title">
+          <h2 id="road-finder-title">編集する高速道路を探す</h2>
+          <label for="editor-road-search">道路名・道路番号から検索</label>
+          <input id="editor-road-search" class="road-search-input" type="search" inputmode="search" autocomplete="off" placeholder="例：東北、圏央道、E4">
+          <p class="field-help">一部の名称や、多少の誤字があっても候補を表示します。</p>
+          <span class="region-label">地域から選ぶ</span>
+          <div id="editor-regions" class="region-options" role="group" aria-label="地域で高速道路を絞り込む"></div>
+          <p id="editor-road-results" class="road-result-status" aria-live="polite"></p>
+        </section>
         <label for="editor-road">高速道路・走行方向</label>
         <select id="editor-road"></select>
         <label>登録地点（走行順）</label>

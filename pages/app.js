@@ -28,6 +28,7 @@ let lastGoodCoordinate = null, lastGoodCoordinateAt = 0;
 let lastRenderArgs = null;
 let currentEditPoint = null, currentEditPrivileged = false, selectedEditorPointID = '', editorToken = sessionStorage.getItem('highway-editor-token')||'';
 let editorRoadGroups = new Map();
+let editorRoadRegion = 'すべて';
 let overrideRefreshTimer = null;
 const GPS_ACCURACY_LIMIT_METERS = 100;
 const GPS_SILENCE_BEFORE_ESTIMATE_MS = 3000;
@@ -585,7 +586,6 @@ async function loadEditorData() {
 }
 
 function populateEditorRoads() {
-  const select=$('editor-road');
   editorRoadGroups=new Map();
   for(const link of links) {
     const key=`${link.highwayName}::${link.directionName}`;
@@ -599,15 +599,89 @@ function populateEditorRoads() {
     ['e1a-shintomei-east',0],['e1a-shintomei-kanagawa-east',1],
   ]);
   for(const group of editorRoadGroups.values())group.links.sort((a,b)=>(preferredOrder.get(a.id)??links.indexOf(a))-(preferredOrder.get(b.id)??links.indexOf(b)));
-  select.replaceChildren(...[...editorRoadGroups.values()].map(group=>{
+  renderEditorRegions();
+  filterEditorRoads();
+}
+
+const roadSearchMetadata = {
+  '東北自動車道':{regions:['東北','関東'],aliases:['東北道','E4','とうほく','トウホク']},
+  '青森自動車道':{regions:['東北'],aliases:['青森道','E4A','あおもり','アオモリ']},
+  '首都圏中央連絡自動車道':{regions:['関東'],aliases:['圏央道','C4','しゅとけんちゅうおうれんらく','けんおうどう']},
+  '中央自動車道':{regions:['関東','甲信越','東海'],aliases:['中央道','E20','E19','ちゅうおう','チュウオウ']},
+  '関越自動車道':{regions:['関東','甲信越'],aliases:['関越道','E17','かんえつ','カンエツ']},
+  '上信越自動車道':{regions:['関東','甲信越'],aliases:['上信越道','E18','じょうしんえつ','ジョウシンエツ']},
+  '北関東自動車道':{regions:['関東'],aliases:['北関東道','E50','きたかんとう','キタカントウ']},
+  '東名高速道路':{regions:['関東','東海'],aliases:['東名高速','東名','E1','とうめい','トウメイ']},
+  '新東名高速道路':{regions:['関東','東海'],aliases:['新東名高速','新東名','E1A','しんとうめい','シントウメイ']},
+  '伊勢湾岸自動車道':{regions:['東海'],aliases:['伊勢湾岸道','E1A','いせわんがん','イセワンガン']},
+  '伊勢自動車道':{regions:['東海','近畿'],aliases:['伊勢道','E23','いせ','イセ']},
+};
+
+const normalizeRoadSearch = value => String(value||'').normalize('NFKC').toLowerCase().replace(/[\s・･\-－_ー高速道路自動車道]/g,'');
+
+function editDistance(a,b) {
+  if(!a.length)return b.length;if(!b.length)return a.length;
+  let previous=Array.from({length:b.length+1},(_,index)=>index);
+  for(let i=1;i<=a.length;i++) {
+    const current=[i];
+    for(let j=1;j<=b.length;j++)current[j]=Math.min(current[j-1]+1,previous[j]+1,previous[j-1]+(a[i-1]===b[j-1]?0:1));
+    previous=current;
+  }
+  return previous[b.length];
+}
+
+function fuzzyRoadMatch(group,rawQuery) {
+  const query=normalizeRoadSearch(rawQuery);if(!query)return true;
+  const metadata=roadSearchMetadata[group.highwayName]||{};
+  const candidates=[group.highwayName,...(metadata.aliases||[]),...group.links.map(link=>link.id)];
+  return candidates.some(value=>{
+    const candidate=normalizeRoadSearch(value);if(!candidate)return false;
+    if(candidate.includes(query)||query.includes(candidate))return true;
+    const tolerance=query.length>=6?2:query.length>=3?1:0;
+    if(editDistance(query,candidate)<=tolerance)return true;
+    if(query.length>=3&&candidate.length>query.length) {
+      for(let start=0;start<=candidate.length-query.length;start++)if(editDistance(query,candidate.slice(start,start+query.length))<=tolerance)return true;
+    }
+    return false;
+  });
+}
+
+function roadRegions(highwayName) {return roadSearchMetadata[highwayName]?.regions||['その他'];}
+
+function renderEditorRegions() {
+  const available=new Set([...editorRoadGroups.values()].flatMap(group=>roadRegions(group.highwayName)));
+  const regionOrder=['すべて','北海道','東北','関東','甲信越','東海','北陸','近畿','中国','四国','九州・沖縄','その他'];
+  if(editorRoadRegion!=='すべて'&&!available.has(editorRoadRegion))editorRoadRegion='すべて';
+  $('editor-regions').replaceChildren(...regionOrder.filter(region=>region==='すべて'||available.has(region)).map(region=>{
+    const button=document.createElement('button');button.type='button';button.className='region-button';button.textContent=region;
+    button.setAttribute('aria-pressed',region===editorRoadRegion?'true':'false');
+    button.addEventListener('click',()=>{
+      editorRoadRegion=region;$('editor-road-search').value='';renderEditorRegions();filterEditorRoads();
+    });
+    return button;
+  }));
+}
+
+function filterEditorRoads() {
+  const select=$('editor-road');
+  const previousValue=select.value;
+  const query=$('editor-road-search').value.trim();
+  const groups=[...editorRoadGroups.values()].filter(group=>(editorRoadRegion==='すべて'||roadRegions(group.highwayName).includes(editorRoadRegion))&&fuzzyRoadMatch(group,query));
+  const options=groups.map(group=>{
     const linkIDs=new Set(group.links.map(link=>link.id));
     const count=points.filter(point=>linkIDs.has(point.linkID)).length;
     const destinations=[...new Set(group.links.map(link=>link.destinationName))];
     const option=document.createElement('option');option.value=group.key;
     option.textContent=`${group.highwayName}｜${group.directionName}・${destinations.join('／')}（${count}地点）`;
     return option;
-  }));
-  refreshEditorPoints();
+  });
+  select.replaceChildren(...options);select.disabled=!options.length;
+  $('editor-edit').disabled=!options.length;
+  if(groups.some(group=>group.key===previousValue))select.value=previousValue;
+  const status=$('editor-road-results');
+  status.textContent=options.length?`${new Set(groups.map(group=>group.highwayName)).size}路線・${options.length}方向が見つかりました。`:'該当する高速道路が見つかりません。別の文字または地域でお試しください。';
+  status.classList.toggle('no-results',!options.length);
+  selectedEditorPointID='';refreshEditorPoints();
 }
 
 function refreshEditorPoints(preferredID='') {
@@ -645,6 +719,10 @@ function renderEditorPreview() {
 }
 
 $('editor-road').addEventListener('change',()=>{selectedEditorPointID='';refreshEditorPoints();});
+$('editor-road-search').addEventListener('input',()=>{
+  if(editorRoadRegion!=='すべて'){editorRoadRegion='すべて';renderEditorRegions();}
+  filterEditorRoads();
+});
 $('editor-edit').addEventListener('click',()=>{const point=selectedEditorPoint();if(point)openFacilityEditor(point,true);});
 
 async function showEditor() {
