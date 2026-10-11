@@ -9,6 +9,7 @@ const output = path.join(root, 'pages-dist');
 const pin = process.env.PAGES_PIN?.trim();
 const apiBaseUrl = process.env.PAGES_API_BASE_URL?.trim() ?? '';
 const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim() ?? '';
+const editorPinHash = 'd3b63363e3c4234a3fa5ad9e7dac9449c7fc9a4b3c28236247d3bace953f9de7';
 
 if (!/^\d{4}$/.test(pin ?? '')) {
   throw new Error('GitHub SecretのPAGES_PINには4桁の数字を設定してください。');
@@ -35,7 +36,7 @@ await writeFile(path.join(output, '.nojekyll'), '');
 const hash = createHash('sha256').update(pin).digest('hex');
 await writeFile(
   path.join(output, 'config.js'),
-  `window.HIGHWAY_ASSIST_CONFIG=${JSON.stringify({ pinHash: hash, apiBaseUrl, googleClientId })};\n`,
+  `window.HIGHWAY_ASSIST_CONFIG=${JSON.stringify({ pinHash: hash, editorPinHash, apiBaseUrl, googleClientId })};\n`,
 );
 
 let html = await readFile(path.join(output, 'index.html'), 'utf8');

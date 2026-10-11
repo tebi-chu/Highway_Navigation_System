@@ -5,6 +5,8 @@ const EDIT_WINDOW_SECONDS=60*60;
 
 const json=(data,status=200,headers={})=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8',...headers}});
 const base64url=value=>Uint8Array.from(atob(value.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(value.length/4)*4,'=')),char=>char.charCodeAt(0));
+const encodeBase64url=value=>btoa(String.fromCharCode(...value)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const textEncoder=new TextEncoder();
 
 export function normalizeUpdate(body) {
   if(!body || typeof body!=='object')throw new Error('invalid body');
@@ -85,9 +87,38 @@ async function verifyGoogleToken(token,env) {
   return allowed.includes(String(payload.email).toLowerCase())?{email:payload.email}:null;
 }
 
+export function nextJapanMidnight(now=Date.now()) {
+  const japan=new Date(now+9*60*60*1000);
+  return Date.UTC(japan.getUTCFullYear(),japan.getUTCMonth(),japan.getUTCDate()+1)-9*60*60*1000;
+}
+
+async function editorSessionKey(env) {
+  return crypto.subtle.importKey('raw',textEncoder.encode(`editor-session:${env.RATE_LIMIT_SALT||'configure-this-secret'}`),{name:'HMAC',hash:'SHA-256'},false,['sign','verify']);
+}
+
+export async function issueEditorSession(editor,env) {
+  const expiresAt=nextJapanMidnight();
+  const payload=encodeBase64url(textEncoder.encode(JSON.stringify({email:editor.email,expiresAt})));
+  const signature=encodeBase64url(new Uint8Array(await crypto.subtle.sign('HMAC',await editorSessionKey(env),textEncoder.encode(payload))));
+  return {token:`hs1.${payload}.${signature}`,expiresAt,email:editor.email};
+}
+
+export async function verifyEditorSessionToken(token,env) {
+  const parts=token.split('.');if(parts.length!==3||parts[0]!=='hs1')return null;
+  let payload;
+  try {payload=JSON.parse(new TextDecoder().decode(base64url(parts[1])));} catch {return null;}
+  if(!payload.email||!Number.isFinite(payload.expiresAt)||payload.expiresAt<=Date.now())return null;
+  const valid=await crypto.subtle.verify('HMAC',await editorSessionKey(env),base64url(parts[2]),textEncoder.encode(parts[1]));
+  if(!valid)return null;
+  const allowed=(env.EDITOR_EMAILS||'').split(',').map(value=>value.trim().toLowerCase()).filter(Boolean);
+  return allowed.includes(String(payload.email).toLowerCase())?{email:payload.email,expiresAt:payload.expiresAt}:null;
+}
+
 async function editorFromRequest(request,env) {
   const authorization=request.headers.get('authorization')||'';
-  return authorization.startsWith('Bearer ')?verifyGoogleToken(authorization.slice(7),env):null;
+  if(!authorization.startsWith('Bearer '))return null;
+  const token=authorization.slice(7);
+  return token.startsWith('hs1.')?verifyEditorSessionToken(token,env):verifyGoogleToken(token,env);
 }
 
 async function anonymousFingerprint(request,env) {
@@ -197,7 +228,12 @@ export default {
       if(request.method==='GET'&&url.pathname==='/v1/overrides')return json({overrides:await listOverrides(env,url)},200,{...headers,'cache-control':'public, max-age=60'});
       if(request.method==='GET'&&url.pathname==='/v1/editor/status') {
         const editor=await editorFromRequest(request,env);
-        return editor?json({editor:true,email:editor.email},200,headers):json({editor:false},401,headers);
+        return editor?json({editor:true,email:editor.email,expiresAt:editor.expiresAt||null},200,headers):json({editor:false},401,headers);
+      }
+      if(request.method==='POST'&&url.pathname==='/v1/editor/session') {
+        const authorization=request.headers.get('authorization')||'';
+        const editor=authorization.startsWith('Bearer ')?await verifyGoogleToken(authorization.slice(7),env):null;
+        return editor?json(await issueEditorSession(editor,env),200,headers):json({error:'登録編集者のGoogleログインを確認できません。'},401,headers);
       }
       if(request.method==='POST'&&url.pathname==='/v1/overrides') {
         const response=await saveOverride(request,env);

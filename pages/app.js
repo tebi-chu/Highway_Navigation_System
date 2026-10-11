@@ -30,6 +30,7 @@ let currentEditPoint = null, currentEditPrivileged = false, selectedEditorPointI
 let editorRoadGroups = new Map();
 let editorRoadRegion = 'すべて';
 let pendingLocationCorrection = null, googleScriptPromise = null;
+let navigationEditingEnabled = false;
 let overrideRefreshTimer = null;
 const GPS_ACCURACY_LIMIT_METERS = 100;
 const GPS_SILENCE_BEFORE_ESTIMATE_MS = 3000;
@@ -47,8 +48,18 @@ async function sha256(value) {
 }
 
 function authenticated() {
-  const [hash, expiry] = (localStorage.getItem('highway-assist-login') || '').split(':');
-  return hash === config.pinHash && Number(expiry) > Date.now();
+  const stored=localStorage.getItem('highway-assist-login')||'';
+  try {
+    const session=JSON.parse(stored);
+    const validHash=session.hash===config.pinHash||session.hash===config.editorPinHash;
+    if(validHash&&Number(session.expiry)>Date.now()) {
+      navigationEditingEnabled=session.mode==='editor'&&session.hash===config.editorPinHash;
+      return true;
+    }
+  } catch {}
+  const [hash,expiry]=stored.split(':');
+  if(hash===config.pinHash&&Number(expiry)>Date.now()) {navigationEditingEnabled=false;return true;}
+  navigationEditingEnabled=false;return false;
 }
 
 function showNavigation() {
@@ -102,17 +113,47 @@ $('pin-form').addEventListener('submit', async (event) => {
     $('pin-error').textContent = '4桁の数字を入力してください。';
     return;
   }
-  if (await sha256(pin) !== config.pinHash) {
+  const enteredHash=await sha256(pin);
+  const mode=enteredHash===config.editorPinHash?'editor':enteredHash===config.pinHash?'viewer':'';
+  if (!mode) {
     $('pin-error').textContent = 'PINコードが正しくありません。';
     $('pin').select();
     return;
   }
-  localStorage.setItem('highway-assist-login', `${config.pinHash}:${Date.now()+7*24*60*60*1000}`);
+  navigationEditingEnabled=mode==='editor';
+  localStorage.setItem('highway-assist-login',JSON.stringify({hash:enteredHash,expiry:Date.now()+7*24*60*60*1000,mode}));
   showNavigation();
+});
+
+$('nav-logout').addEventListener('click',()=>{
+  localStorage.removeItem('highway-assist-login');
+  navigationEditingEnabled=false;navigationActive=false;
+  if(watchId!==null)navigator.geolocation?.clearWatch(watchId);
+  location.reload();
 });
 
 function apiUrl(path) {
   return `${String(config.apiBaseUrl||'').replace(/\/$/,'')}${path}`;
+}
+
+function editorSession() {
+  try {
+    const session=JSON.parse(localStorage.getItem('highway-editor-session')||'null');
+    if(session?.token&&Number(session.expiresAt)>Date.now())return session;
+  } catch {}
+  localStorage.removeItem('highway-editor-session');
+  return null;
+}
+
+function editorAuthorizationToken() {return editorSession()?.token||editorToken||'';}
+
+async function establishEditorSession(googleCredential) {
+  const response=await fetch(apiUrl('/v1/editor/session'),{method:'POST',headers:{authorization:`Bearer ${googleCredential}`}});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.error||'登録編集者の確認に失敗しました。');
+  localStorage.setItem('highway-editor-session',JSON.stringify({token:data.token,expiresAt:data.expiresAt,email:data.email}));
+  editorToken='';sessionStorage.removeItem('highway-editor-token');
+  return data;
 }
 
 function applyOverrides(overrides) {
@@ -167,7 +208,7 @@ function anonymousDeviceID() {
 }
 
 function addLongPress(article,item) {
-  if(!['SA','PA'].includes(item.kind))return;
+  if(!navigationEditingEnabled||!['SA','PA'].includes(item.kind))return;
   let timer=null,moved=false,startX=0,startY=0;
   article.classList.add('editable-card');
   article.addEventListener('pointerdown',event=>{article._longPressTriggered=false;moved=false;startX=event.clientX;startY=event.clientY;timer=setTimeout(()=>{timer=null;if(!moved){article._longPressTriggered=true;openFacilityEditor(item,false);}},700);});
@@ -217,7 +258,8 @@ $('facility-form').addEventListener('submit',async event=>{
   const checked=id=>[...$(id).querySelectorAll('input:checked')].map(input=>input.value);
   try {
     const headers={'content-type':'application/json','x-highway-device-id':anonymousDeviceID()};
-    if(editorToken)headers.authorization=`Bearer ${editorToken}`;
+    const authorization=editorAuthorizationToken();
+    if(authorization)headers.authorization=`Bearer ${authorization}`;
     const payload={pointId:currentEditPoint.id,roadId:currentEditPoint.linkID,facilities:checked('facility-options'),brands:checked('brand-options'),note:$('edit-note').value.trim()};
     if(currentEditPrivileged) {
       const displayName=$('edit-display-name').value.trim();
@@ -397,7 +439,7 @@ async function updateLocationCorrectionAuth(correction) {
   $('location-auth').textContent='確定にはGoogle登録編集者としてのログインが必要です。';
   $('location-save').disabled=true;
   renderGoogleSignIn('location-google-signin',async response=>{
-    editorToken=response.credential;sessionStorage.setItem('highway-editor-token',editorToken);
+    try {await establishEditorSession(response.credential);} catch(error) {$('location-error').textContent=error.message;return;}
     const authorized=await validateEditorToken();
     if(pendingLocationCorrection!==correction)return;
     if(!authorized) {
@@ -441,7 +483,7 @@ $('location-form').addEventListener('submit',async event=>{
   const correction=pendingLocationCorrection;if(!correction)return;
   $('location-save').disabled=true;$('location-error').textContent='保存しています…';
   try {
-    const response=await fetch(apiUrl('/v1/location-corrections'),{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${editorToken}`},body:JSON.stringify(correction)});
+    const response=await fetch(apiUrl('/v1/location-corrections'),{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${editorAuthorizationToken()}`},body:JSON.stringify(correction)});
     const data=await response.json();if(!response.ok)throw new Error(data.error||'到着位置を保存できませんでした。');
     pendingLocationCorrection=null;$('location-dialog').close();
     await syncOverrides(true);
@@ -483,7 +525,7 @@ function render(match, accuracy, statusText='') {
     article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name"><span>${escapeHTML(item.name)}</span>${item.romanizedName?`<small>${escapeHTML(item.romanizedName)}</small>`:''}</strong></div><div class="live-details${facilities?'':' no-facilities'}">${facilities?`<div class="facility-row">${facilities}</div>`:''}<div class="live-metrics"><b class="arrival-time">${eta(displayRemaining/(speedKph*1000/3600))}<small>通過</small></b><b class="next-distance">${(Math.max(0,displayRemaining)/1000).toFixed(1)}<small>km</small></b></div></div>`;
     if(previewing)article.classList.add('location-preview');
     addLongPress(article,item);
-    if(correctionEligible) {
+    if(correctionEligible&&navigationEditingEnabled) {
       article.classList.add('location-correctable');article.setAttribute('aria-label',`${item.name}。タップで到着位置を補正`);
       let tapMoved=false,tapX=0,tapY=0;
       article.addEventListener('pointerdown',event=>{tapMoved=false;tapX=event.clientX;tapY=event.clientY;});
@@ -635,19 +677,21 @@ async function editorAuthenticated() {
 }
 
 async function validateEditorToken() {
-  if(!editorToken||!config.apiBaseUrl)return null;
+  const authorization=editorAuthorizationToken();
+  if(!authorization||!config.apiBaseUrl)return null;
   try {
-    const response=await fetch(apiUrl('/v1/editor/status'),{headers:{authorization:`Bearer ${editorToken}`}});
+    const response=await fetch(apiUrl('/v1/editor/status'),{headers:{authorization:`Bearer ${authorization}`}});
     if(!response.ok)throw new Error();
     return response.json();
   } catch {
-    editorToken='';sessionStorage.removeItem('highway-editor-token');return null;
+    editorToken='';sessionStorage.removeItem('highway-editor-token');localStorage.removeItem('highway-editor-session');return null;
   }
 }
 
 $('editor-logout').addEventListener('click',()=>{
   editorToken='';
   sessionStorage.removeItem('highway-editor-token');
+  localStorage.removeItem('highway-editor-session');
   window.google?.accounts?.id?.disableAutoSelect();
   $('editor-account').hidden=true;$('editor-logout').hidden=true;$('editor-controls').hidden=true;$('google-signin').hidden=false;
   $('editor-setup').textContent='Google登録編集者としてログインしてください。';
@@ -676,7 +720,7 @@ async function renderGoogleSignIn(targetID,callback) {
 
 function loadGoogleSignIn() {
   renderGoogleSignIn('google-signin',async response=>{
-      editorToken=response.credential;sessionStorage.setItem('highway-editor-token',editorToken);
+      try {await establishEditorSession(response.credential);} catch(error) {$('editor-setup').textContent=error.message;return;}
       if(await editorAuthenticated())await loadEditorData();
       else $('editor-setup').textContent='このGoogleアカウントには編集権限が登録されていません。';
   });
@@ -837,7 +881,8 @@ async function showEditor() {
     $('editor-setup').textContent='Cloudflare APIとGoogleログインの初期設定が必要です。設定手順はREADMEをご確認ください。';
     return;
   }
-  $('editor-setup').textContent=`Google登録編集者としてログインしてください。${editorToken?`（${decodeGoogleEmail(editorToken)}を確認中）`:''}`;
+  const savedEditor=editorSession();
+  $('editor-setup').textContent=`Google登録編集者としてログインしてください。${savedEditor?.email?`（${savedEditor.email}を確認中）`:editorToken?`（${decodeGoogleEmail(editorToken)}を確認中）`:''}`;
   if(await editorAuthenticated()){await loadEditorData();$('editor-setup').textContent='道路と走行方向を選択してください。';}
   else loadGoogleSignIn();
 }

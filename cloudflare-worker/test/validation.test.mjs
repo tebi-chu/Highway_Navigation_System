@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker,{normalizeLocationCorrection,normalizeUpdate} from '../src/index.js';
+import worker,{issueEditorSession,nextJapanMidnight,normalizeLocationCorrection,normalizeUpdate,verifyEditorSessionToken} from '../src/index.js';
 
 test('accepts a known facility update',()=>{
   assert.deepEqual(normalizeUpdate({pointId:'e4-north-1',roadId:'e4-north',facilities:['restaurant','fuel'],brands:['matsuya']}),{
@@ -48,4 +48,18 @@ test('requires a registered Google editor before saving a location correction',a
   const response=await worker.fetch(request,{ALLOWED_ORIGINS:'https://example.com'});
   assert.equal(response.status,403);
   assert.match((await response.json()).error,/Googleログイン/);
+});
+
+test('editor session expires at the next midnight in Japan',()=>{
+  assert.equal(nextJapanMidnight(Date.parse('2026-10-11T14:59:00Z')),Date.parse('2026-10-11T15:00:00Z'));
+  assert.equal(nextJapanMidnight(Date.parse('2026-10-11T15:00:00Z')),Date.parse('2026-10-12T15:00:00Z'));
+});
+
+test('issues and verifies a signed editor session',async()=>{
+  const env={RATE_LIMIT_SALT:'test-secret-with-enough-randomness',EDITOR_EMAILS:'editor@example.com'};
+  const session=await issueEditorSession({email:'editor@example.com'},env);
+  assert.match(session.token,/^hs1\./);
+  assert.deepEqual(await verifyEditorSessionToken(session.token,env),{email:'editor@example.com',expiresAt:session.expiresAt});
+  const tampered=`${session.token.slice(0,-1)}${session.token.endsWith('a')?'b':'a'}`;
+  assert.equal(await verifyEditorSessionToken(tampered,env),null);
 });
