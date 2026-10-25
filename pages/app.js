@@ -66,6 +66,8 @@ function showNavigation() {
   $('login').hidden = true;
   $('navigation').hidden = false;
   navigationActive = true;
+  document.body.classList.add('navigation-active');
+  settleNavigationViewport();
   requestWakeLock();
   startNavigation();
 }
@@ -98,6 +100,7 @@ async function releaseWakeLock() {
 document.addEventListener('visibilitychange',()=>{
   estimateTickAt=Date.now();
   if(document.visibilityState==='visible') {
+    settleNavigationViewport();
     requestWakeLock();
     refreshLocationAfterResume();
     syncOverrides();
@@ -164,7 +167,7 @@ function applyOverrides(overrides) {
     point._sourceOffsetMeters??=point.offsetMeters;
     const override=byID.get(point.id);
     point.name=override?.displayName||point._sourceName;
-    point.romanizedName=override?.displayName? '':point._sourceRomanizedName;
+    point.romanizedName=HighwayNavigationData.romanizedName({...point,romanizedName:point._sourceRomanizedName});
     point.hidden=override?.hidden===true;
     point.displayName=override?.displayName||null;
     point.note=typeof override?.note==='string'?override.note:'';
@@ -273,7 +276,7 @@ $('facility-form').addEventListener('submit',async event=>{
     if(currentEditPrivileged) {
       currentEditPoint.displayName=data.displayName||null;
       currentEditPoint.name=data.displayName||currentEditPoint._sourceName;
-      currentEditPoint.romanizedName=data.displayName?'':currentEditPoint._sourceRomanizedName;
+      currentEditPoint.romanizedName=HighwayNavigationData.romanizedName({...currentEditPoint,romanizedName:currentEditPoint._sourceRomanizedName});
       currentEditPoint.hidden=data.hidden===true;
     }
     await syncOverrides(true);
@@ -322,7 +325,10 @@ function matchPosition(position) {
 
 function findUpcoming(match) {
   const byID=new Map(links.map(link=>[link.id,link])),results=[];
-  for(const point of points) if(!point.hidden&&point.linkID===match.link.id && point.offsetMeters>=match.offset-200) results.push({...point,remaining:point.offsetMeters-match.offset});
+  // Group before filtering by progress: the IC must stay attached to its area
+  // even after the original IC ramp position has already been passed.
+  const displayPoints=HighwayNavigationData.groupedPoints(points);
+  for(const point of displayPoints) if(point.linkID===match.link.id && point.offsetMeters>=match.offset-200) results.push({...point,remaining:point.offsetMeters-match.offset});
   const queue=(match.link.nextLinkIDs||[]).map(id=>({id,distance:match.link.lengthMeters-match.offset}));
   const visited=new Map();
   while(queue.length && results.length<24) {
@@ -330,42 +336,14 @@ function findUpcoming(match) {
     const current=queue.shift(),link=byID.get(current.id);
     if(!link || current.distance>=visited.get(link.id))continue;
     visited.set(link.id,current.distance);
-    for(const point of points)if(!point.hidden&&point.linkID===link.id)results.push({...point,remaining:current.distance+point.offsetMeters});
+    for(const point of displayPoints)if(point.linkID===link.id)results.push({...point,remaining:current.distance+point.offsetMeters});
     for(const nextID of link.nextLinkIDs||[])queue.push({id:nextID,distance:current.distance+link.lengthMeters});
   }
   const unique=[];
   for(const item of results.sort((a,b)=>a.remaining-b.remaining)) {
     if(!unique.some(existing=>existing.name===item.name && existing.kind===item.kind && Math.abs(existing.remaining-item.remaining)<500))unique.push(item);
   }
-  const merged=[];
-  const baseName=name=>name.replace(/(?:PA|SA)?スマート$/,'').replace(/(?:PA|SA)$/,'');
-  for(const item of unique) {
-    const kinds=new Set([item.kind]);
-    const partner=merged.find(existing=>{
-      const combined=new Set([...(existing.kinds||[existing.kind]),...kinds]);
-      return existing.linkID===item.linkID && baseName(existing.name)===baseName(item.name)
-        && Math.abs(existing.remaining-item.remaining)<600
-        && combined.has('IC') && (combined.has('PA')||combined.has('SA'));
-    });
-    if(!partner) {
-      merged.push({...item,kinds:[item.kind],correctionPoints:[{pointId:item.id,originalOffsetMeters:item.offsetMeters}]});
-      continue;
-    }
-    partner.kinds=[...new Set([...partner.kinds,item.kind])];
-    partner.correctionPoints.push({pointId:item.id,originalOffsetMeters:item.offsetMeters});
-    partner.facilities=[...new Set([...(partner.facilities||[]),...(item.facilities||[])])];
-    partner.brands=[...new Set([...(partner.brands||[]),...(item.brands||[])])];
-    partner.note=partner.note||item.note||'';
-    const area=[partner,item].find(point=>point.kind==='PA'||point.kind==='SA');
-    if(area) {
-      partner.id=area.id;
-      partner.kind=area.kind;
-      partner.name=baseName(area.name);
-      partner.romanizedName=area.romanizedName||partner.romanizedName;
-    }
-    partner.remaining=Math.min(partner.remaining,item.remaining);
-  }
-  return merged.slice(0,7);
+  return unique.slice(0,7);
 }
 
 function advanceMatch(match, distanceMeters) {
@@ -549,9 +527,42 @@ function render(match, accuracy, statusText='') {
   fitRomanizedLabels($('point-list'));
 }
 
-window.addEventListener('resize',()=>{
-  if(lastRenderArgs) render(lastRenderArgs.match,lastRenderArgs.accuracy,lastRenderArgs.statusText);
-});
+let viewportFrame=null;
+function updateNavigationViewport() {
+  if(viewportFrame!==null)cancelAnimationFrame(viewportFrame);
+  viewportFrame=requestAnimationFrame(()=>{
+    viewportFrame=null;
+    const landscape=window.matchMedia('(orientation: landscape)').matches;
+    const root=document.documentElement;
+    root.dataset.landscape=String(landscape);
+    const angles=[screen.orientation?.angle,window.orientation]
+      .filter(Number.isFinite).map(angle=>((angle%360)+360)%360);
+    const angle=angles.find(angle=>angle===90||angle===270)??null;
+    // In landscape-primary the iPhone camera is on the left. Safari may
+    // expose identical safe-area values on both edges; reserve only its side.
+    root.dataset.notchSide=landscape?(angle===90?'left':angle===270?'right':'auto'):'auto';
+    const viewport=window.visualViewport;
+    // Use the live visual viewport from initial launch onward, without
+    // resizing the dashboard when pinch zoom or an editor keyboard is active.
+    if(landscape&&navigationActive&&(!viewport||Math.abs(viewport.scale-1)<.01)) {
+      root.style.setProperty('--navigation-height',`${viewport?.height||window.innerHeight}px`);
+      root.style.setProperty('--navigation-width',`${viewport?.width||window.innerWidth}px`);
+      window.scrollTo(0,0);
+    }
+    if(lastRenderArgs)render(lastRenderArgs.match,lastRenderArgs.accuracy,lastRenderArgs.statusText);
+  });
+}
+function settleNavigationViewport() {
+  updateNavigationViewport();
+  // iOS updates launch/orientation metrics in several passes.
+  for(const delay of [100,350,800])setTimeout(updateNavigationViewport,delay);
+}
+window.addEventListener('resize',updateNavigationViewport);
+window.addEventListener('orientationchange',settleNavigationViewport);
+screen.orientation?.addEventListener('change',settleNavigationViewport);
+window.visualViewport?.addEventListener('resize',updateNavigationViewport);
+window.addEventListener('pageshow',settleNavigationViewport);
+settleNavigationViewport();
 
 function regionFor(latitude, longitude) {
   return manifest?.regions.find(({bounds}) => latitude>=bounds.south && latitude<=bounds.north && longitude>=bounds.west && longitude<=bounds.east) || null;

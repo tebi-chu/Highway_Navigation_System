@@ -27,6 +27,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: ナビ表示の回帰テスト
+        run: node --test pages/test/*.test.cjs
       - name: PINを確認して静的アプリを作成
         env:
           PAGES_PIN: ${{ secrets.PAGES_PIN }}

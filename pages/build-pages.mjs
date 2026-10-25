@@ -18,7 +18,7 @@ if (!/^\d{4}$/.test(pin ?? '')) {
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
 await mkdir(path.join(output, 'data'), { recursive: true });
-for (const file of ['index.html', 'styles.css', 'app.js', 'highway-icon.png', 'manifest.webmanifest']) {
+for (const file of ['index.html', 'styles.css', 'navigation-data.js', 'app.js', 'highway-icon.png', 'manifest.webmanifest']) {
   await cp(path.join(source, file), path.join(output, file));
 }
 const manifestPath = path.join(root, 'web/data/highway-manifest.json');
@@ -44,9 +44,11 @@ if (!html.includes('config.js')) throw new Error('config.js is not loaded by ind
 const assetVersion = createHash('sha256')
   .update(await readFile(path.join(output, 'styles.css')))
   .update(await readFile(path.join(output, 'app.js')))
+  .update(await readFile(path.join(output, 'navigation-data.js')))
   .digest('hex')
   .slice(0, 12);
 html = html
   .replace('href="styles.css"', `href="styles.css?v=${assetVersion}"`)
   .replace('src="app.js"', `src="app.js?v=${assetVersion}"`);
+html = html.replace('src="navigation-data.js"', `src="navigation-data.js?v=${assetVersion}"`);
 await writeFile(path.join(output, 'index.html'), html);
