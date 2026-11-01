@@ -16,6 +16,7 @@ const editableFacilities=['restaurant','convenienceStore','cafe','fuel','hotSpri
 const editableBrands=['starbucks','tullys','doutor','sevenEleven','lawson','familyMart','gooz','ministop','yoshinoya','matsuya','sukiya'];
 let links = [], points = [], watchId = null, manifest = null, loadedRegion = null;
 let regionLoadPromise = null, regionLoadID = null, regionLoadFailedAt = 0;
+let roadMatcher = null, roadMatcherLinks = null, junctionMatchingData = {};
 
 function setStatus(message) {
   const element=$('status-message');
@@ -286,41 +287,12 @@ $('facility-form').addEventListener('submit',async event=>{
   finally {$('edit-save').disabled=false;}
 });
 
-function nearest(link, position) {
-  let best={distance:Infinity,offset:0,bearing:0}, travel=0;
-  const latScale=110540,lonScale=111320*Math.cos(position.latitude*Math.PI/180);
-  for(let i=1;i<link.polyline.length;i++) {
-    const a=link.polyline[i-1],b=link.polyline[i],dx=(b.longitude-a.longitude)*lonScale,dy=(b.latitude-a.latitude)*latScale;
-    const px=(position.longitude-a.longitude)*lonScale,py=(position.latitude-a.latitude)*latScale;
-    const ratio=Math.max(0,Math.min(1,(px*dx+py*dy)/(dx*dx+dy*dy||1)));
-    const distance=Math.hypot(px-ratio*dx,py-ratio*dy),length=meters(a,b);
-    if(distance<best.distance) {
-      const bearing=(Math.atan2(dx,dy)*180/Math.PI+360)%360;
-      best={distance,offset:travel+length*ratio,bearing};
-    }
-    travel+=length;
-  }
-  return best;
-}
-
 function matchPosition(position) {
-  const coordinate={latitude:position.coords.latitude,longitude:position.coords.longitude};
-  const heading=position.coords.heading;
-  const moving=Number.isFinite(heading) && (position.coords.speed||0)>=2;
-  const candidates=links.map(link=>{
-    const candidate=nearest(link,coordinate);
-    const angle=Math.abs(((candidate.bearing-heading+540)%360)-180);
-    let continuityPenalty=0;
-    if(estimatedMatch?.link?.id===link.id && lastGoodGpsAt) {
-      const elapsed=Math.max(0,(Date.now()-lastGoodGpsAt)/1000);
-      const expected=estimatedMatch.offset+lastReliableSpeed*elapsed;
-      const tolerance=Math.max(120,(position.coords.accuracy||0)*2,lastReliableSpeed*elapsed+60);
-      continuityPenalty=Math.max(0,Math.abs(candidate.offset-expected)-tolerance)*4;
-    }
-    return {link,...candidate,score:candidate.distance+(moving?angle*12:0)+continuityPenalty};
-  }).sort((a,b)=>a.score-b.score);
-  if(!candidates[0] || candidates[0].distance>1500) return null;
-  return {...candidates[0],speed:Math.max(0,position.coords.speed||0)};
+  if(roadMatcherLinks!==links) {
+    roadMatcher=new HighwayRoadMatcher.RoadMatcher(links,points,junctionMatchingData);
+    roadMatcherLinks=links;
+  }
+  return roadMatcher.update(position);
 }
 
 function findUpcoming(match) {
@@ -431,6 +403,7 @@ async function updateLocationCorrectionAuth(correction) {
 }
 
 function openLocationCorrection(item,match,accuracy,article) {
+  if(match.uncertain) {setStatus('道路切替を確認中のため、位置補正は確定後に行ってください。');return;}
   if(!config.apiBaseUrl||!config.googleClientId) {setStatus('到着位置補正の初期設定が完了していません。');return;}
   if(!Number.isFinite(accuracy)||accuracy>30) {setStatus('到着位置の補正にはGPS精度30m以内が必要です。');return;}
   if(!lastGoodCoordinate||!lastGoodGpsAt||Date.now()-lastGoodGpsAt>10000) {setStatus('最新のGPS位置を取得してから、もう一度タップしてください。');return;}
@@ -611,6 +584,7 @@ async function handlePosition(position) {
       }
       const match=matchPosition(position);
       if(match) {
+        if(match.ignoredFix)return;
         const now=Date.now();
         if(Number.isFinite(position.coords.speed) && position.coords.speed>=0) {
           lastReliableSpeed=position.coords.speed;
@@ -622,10 +596,10 @@ async function handlePosition(position) {
         estimatedMatch=match;
         lastGoodGpsAt=now;estimateTickAt=now;lastAccuracy=accuracy;
         lastGoodCoordinate={latitude:position.coords.latitude,longitude:position.coords.longitude};lastGoodCoordinateAt=now;
-        render(match,accuracy);
+        render(match,accuracy,match.statusText||'');
       } else {
         estimatedMatch=null;
-        setStatus('対応ルート付近の高速道路を判定できません。');
+        setStatus('高速道路と走行方向を確認しています…');
       }
   } catch {setStatus('地域の高速道路データを読み込めません。通信状態を確認してください。');}
 }
@@ -658,6 +632,10 @@ async function startNavigation() {
   } catch {
     setStatus('道路データを読み込めません。'); return;
   }
+  try {
+    const response=await fetch('data/junction-matching.json',{cache:'no-cache'});
+    if(response.ok)junctionMatchingData=await response.json();
+  } catch { /* Shared-JCT anchors remain available in the base road data. */ }
   if((location.hostname==='127.0.0.1'||location.hostname==='localhost') && new URLSearchParams(location.search).has('preview')) {
     const region=manifest.regions[0];
     const response=await fetch(region.file);

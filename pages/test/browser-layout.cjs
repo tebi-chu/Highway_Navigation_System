@@ -45,6 +45,17 @@ const server=http.createServer(async(req,res)=>{
       const card=page.locator('.primary-column .live-card').filter({hasText:'遠州森町'});
       assert.equal(await card.count(),1);assert.deepEqual(await card.locator('.point-kinds span').allTextContents(),['PA','IC']);
       assert.equal((await card.locator('.next-distance').innerText()).replace(/\s/g,''),'0.5km');
+      const roads=await page.evaluate(()=>{
+        const link=links.find(link=>link.id==='e4-north');
+        const junction=points.find(point=>point.linkID===link.id&&point.name==='久喜白岡'&&point.kind==='JCT');
+        const ids=[];
+        for(let i=0;i<20;i++) {
+          const coordinate=HighwayRoadMatcher.coordinateAt(link,junction.offsetMeters-200+i*25);
+          ids.push(matchPosition({timestamp:Date.now()+i*1000,coords:{...coordinate,heading:HighwayRoadMatcher.project(link,coordinate).bearing,speed:25,accuracy:8}})?.link.id);
+        }
+        return ids;
+      });
+      assert.ok(roads.every(id=>id==='e4-north'),'live app road-matcher integration');
       await page.setViewportSize({width:390,height:844});
       await page.waitForTimeout(200);
       assert.equal(await page.locator('#point-list>.live-card').count(),5);

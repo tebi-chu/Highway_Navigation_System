@@ -18,12 +18,13 @@ if (!/^\d{4}$/.test(pin ?? '')) {
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
 await mkdir(path.join(output, 'data'), { recursive: true });
-for (const file of ['index.html', 'styles.css', 'navigation-data.js', 'app.js', 'highway-icon.png', 'manifest.webmanifest']) {
+for (const file of ['index.html', 'styles.css', 'navigation-data.js', 'road-matcher.js', 'app.js', 'highway-icon.png', 'manifest.webmanifest']) {
   await cp(path.join(source, file), path.join(output, file));
 }
 const manifestPath = path.join(root, 'web/data/highway-manifest.json');
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 await cp(manifestPath, path.join(output, 'data/manifest.json'));
+await cp(path.join(root, 'web/data/junction-matching.json'), path.join(output, 'data/junction-matching.json'));
 for (const region of manifest.regions ?? []) {
   if (typeof region.file !== 'string' || !/^data\/[a-z0-9-]+\.json$/i.test(region.file)) {
     throw new Error(`道路データのファイル指定が不正です: ${region.file}`);
@@ -45,10 +46,12 @@ const assetVersion = createHash('sha256')
   .update(await readFile(path.join(output, 'styles.css')))
   .update(await readFile(path.join(output, 'app.js')))
   .update(await readFile(path.join(output, 'navigation-data.js')))
+  .update(await readFile(path.join(output, 'road-matcher.js')))
   .digest('hex')
   .slice(0, 12);
 html = html
   .replace('href="styles.css"', `href="styles.css?v=${assetVersion}"`)
   .replace('src="app.js"', `src="app.js?v=${assetVersion}"`);
 html = html.replace('src="navigation-data.js"', `src="navigation-data.js?v=${assetVersion}"`);
+html = html.replace('src="road-matcher.js"', `src="road-matcher.js?v=${assetVersion}"`);
 await writeFile(path.join(output, 'index.html'), html);
