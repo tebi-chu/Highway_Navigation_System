@@ -12,7 +12,7 @@ const server=http.createServer(async(req,res)=>{
     const filename=path.resolve(root,'.'+decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname));
     if(!filename.startsWith(root+path.sep))throw new Error();
     let body=await fs.readFile(filename);
-    if(filename.endsWith('.css'))body=body.toString().replace(/env\(safe-area-inset-(?:left|right),0px\)/g,'50px');
+    if(filename.endsWith('.css'))body=body.toString().replace(/env\(safe-area-inset-(?:left|right),0px\)/g,'var(--test-safe-inline,0px)')+'\n@media(orientation:landscape){:root{--test-safe-inline:50px}}';
     res.writeHead(200,{'content-type':types[path.extname(filename)]||'application/octet-stream'});res.end(body);
   } catch {res.writeHead(404);res.end();}
 });
@@ -60,6 +60,24 @@ const server=http.createServer(async(req,res)=>{
       await page.waitForTimeout(200);
       assert.equal(await page.locator('#point-list>.live-card').count(),5);
       assert.equal(await page.locator('#navigation').evaluate(nav=>getComputedStyle(nav).position),'static');
+      // Reproduce the user's Ebina example using a local-only fixture.
+      await page.evaluate(()=>{
+        const link=links.find(link=>link.id==='e1-tomei-east');
+        const area=points.find(point=>point.linkID===link.id&&point.name==='海老名'&&point.kind==='SA');
+        area.brands=['starbucks'];area.facilities=['restaurant','fuel'];area.note='柿安・成城石井・くくる';
+        render({link,offset:area.offsetMeters-100,speed:10},5);
+      });
+      for(const size of [{width:390,height:844},{width:440,height:956}]) {
+        await page.setViewportSize(size);await page.waitForTimeout(150);
+        const ebina=page.locator('#point-list .live-card').filter({hasText:'Ebina'});
+        const facility=await ebina.locator('.facility-row').evaluate(row=>({wrapped:row.classList.contains('facility-wrapped'),height:row.clientHeight,contentHeight:row.scrollHeight,children:[...row.children].map(child=>({width:child.clientWidth,contentWidth:child.scrollWidth})),note:row.querySelector('.facility-note').textContent}));
+        assert.equal(facility.wrapped,true);assert.ok(facility.children.every(item=>item.contentWidth<=item.width+1));
+        assert.ok(facility.contentHeight<=facility.height+1,JSON.stringify({size,facility}));
+        assert.equal(facility.note,'★ 柿安・成城石井・くくる');
+      }
+      await page.setViewportSize({width:844,height:390});await page.waitForTimeout(200);
+      const landscapeRow=page.locator('.primary-column .live-card').filter({hasText:'Ebina'}).locator('.facility-row');
+      assert.equal(await landscapeRow.evaluate(row=>row.classList.contains('facility-wrapped')),false);
       assert.deepEqual(errors,[]);
       console.log(`PASS landscape startup ${angle}: full height, opposite edge, 2/3 columns, romanization, merged PA/IC, portrait rotation`);
       await context.close();

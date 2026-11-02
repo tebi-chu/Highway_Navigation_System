@@ -442,7 +442,16 @@ $('location-form').addEventListener('submit',async event=>{
   } catch(error) {$('location-error').textContent=error.message;$('location-save').disabled=false;}
 });
 
+function fitFacilityRows(root) {
+  for(const row of root.querySelectorAll('.facility-row')) {
+    row.classList.remove('facility-wrapped');
+    const clipped=row.scrollWidth>row.clientWidth+1||[...row.children].some(item=>item.scrollWidth>item.clientWidth+1);
+    if(clipped)row.classList.add('facility-wrapped');
+  }
+}
+
 function render(match, accuracy, statusText='') {
+  const facilityScroll=new Map([...$('point-list').querySelectorAll('.facility-row')].map(row=>[row.closest('.live-card').dataset.pointId,row.scrollTop]));
   lastRenderArgs={match,accuracy,statusText};
   const upcoming=findUpcoming(match);
   const nearestUpcomingID=upcoming[0]?.id||'';
@@ -461,6 +470,7 @@ function render(match, accuracy, statusText='') {
     if(!item) {const empty=document.createElement('div');empty.className='empty-slot';return empty;}
     const displayKinds=[...(item.kinds||[item.kind])].sort((a,b)=>(a==='SA'||a==='PA'?-1:0)-(b==='SA'||b==='PA'?-1:0));
     const article=document.createElement('article');article.className=`live-card kind-${item.kind.toLowerCase()}${compact?' compact-card':''}`;
+    article.dataset.pointId=item.id;
     if(compact) {
       article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name"><span>${escapeHTML(item.name)}</span></strong></div><div class="compact-metrics"><b class="next-distance">${(Math.max(0,item.remaining)/1000).toFixed(1)}<small>km</small></b><b class="arrival-time">${eta(item.remaining/(speedKph*1000/3600))}<small>通過</small></b></div>`;
       return article;
@@ -498,6 +508,8 @@ function render(match, accuracy, statusText='') {
     $('point-list').replaceChildren(...slots.map(item=>createCard(item,false,item?.id===nearestUpcomingID)));
   }
   fitRomanizedLabels($('point-list'));
+  fitFacilityRows($('point-list'));
+  for(const row of $('point-list').querySelectorAll('.facility-row'))row.scrollTop=facilityScroll.get(row.closest('.live-card').dataset.pointId)||0;
 }
 
 let viewportFrame=null;
