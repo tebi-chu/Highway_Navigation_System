@@ -30,6 +30,11 @@ const server=http.createServer(async(req,res)=>{
       await page.goto(`http://127.0.0.1:${server.address().port}/?preview=1`);
       await page.locator('.primary-column .live-card').first().waitFor();
       await page.waitForTimeout(1000);
+      const newRoads=await page.evaluate(()=>{
+        populateEditorRoads();
+        return ['伊豆縦貫自動車道','伊豆中央道','修善寺道路','箱根新道','箱根ターンパイク','保土ヶ谷バイパス','横浜新道'].map(name=>({name,directions:[...editorRoadGroups.values()].filter(group=>group.highwayName===name).map(group=>group.directionName)}));
+      });
+      for(const road of newRoads)assert.deepEqual(road.directions.sort(),['上り','下り'],road.name);
       const layout=await page.evaluate(()=>{
         const nav=document.getElementById('navigation'),rect=nav.getBoundingClientRect(),css=getComputedStyle(nav);
         return {top:rect.top,bottom:rect.bottom,width:rect.width,left:css.paddingLeft,right:css.paddingRight,primary:document.querySelectorAll('.primary-column .live-card').length,compact:document.querySelectorAll('.compact-column .live-card').length,romanPrimary:document.querySelectorAll('.primary-column .point-name>small').length,romanCompact:document.querySelectorAll('.compact-column .point-name>small').length};

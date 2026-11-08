@@ -398,6 +398,11 @@ def main():
         "coverage": "東北道・圏央道・中央道・関越道・上信越道・北関東道・東名・新東名・伊勢湾岸道・伊勢道（開通済み区間、上下線）",
         "links": links, "points": points,
     }
+    local_path = ROOT / "web" / "data" / "local-roads.json"
+    if local_path.exists():
+        local = json.loads(local_path.read_text(encoding="utf-8"))
+        output["links"].extend(local["links"])
+        output["points"].extend(local["points"])
     DESTINATION.write_text(json.dumps(output, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
 
 

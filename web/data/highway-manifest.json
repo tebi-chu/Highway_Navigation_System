@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "updatedAt": "2026-10-04",
+  "updatedAt": "2026-11-08",
   "regions": [
     {
       "id": "regional-expressways",
-      "name": "東北道・圏央道・中央道・関越道・上信越道・北関東道・東名・新東名・伊勢湾岸道・伊勢道（上下線）",
+      "name": "登録済み高速道路・伊豆縦貫道・箱根新道・ターンパイク・保土ヶ谷バイパス・横浜新道（両方向）",
       "file": "data/regional-expressways.json",
       "bounds": {
         "south": 34.3,

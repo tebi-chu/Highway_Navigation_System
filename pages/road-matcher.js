@@ -30,9 +30,10 @@
   }
   function junctionsFromPoints(links,points) {
     const byID=new Map(links.map(link=>[link.id,link])),names=new Map(),result=[];
-    for(const point of points.filter(point=>point.kind==='JCT')) {
+    const connectingNames=new Set(points.map(point=>point.connectionGroup).filter(Boolean));
+    for(const point of points.filter(point=>point.kind==='JCT'||point.connectionGroup||connectingNames.has(point._sourceName||point.name))) {
       const link=byID.get(point.linkID);if(!link)continue;
-      const name=point._sourceName||point.name;
+      const name=point.connectionGroup||point._sourceName||point.name;
       if(!names.has(name))names.set(name,[]);
       names.get(name).push({linkID:link.id,offset:point._sourceOffsetMeters??point.offsetMeters,coordinate:coordinateAt(link,point._sourceOffsetMeters??point.offsetMeters)});
     }

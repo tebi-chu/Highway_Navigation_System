@@ -460,7 +460,7 @@ function render(match, accuracy, statusText='') {
   const slots=[...Array(5-portraitPoints.length).fill(null),...portraitPoints.reverse()];
   const speedKph=match.speed*3.6>=20?match.speed*3.6:match.link.standardSpeedKPH;
 
-  $('route-number').textContent=match.link.id.split('-')[0].toUpperCase();
+  $('route-number').textContent=match.link.routeNumber||match.link.id.split('-')[0].toUpperCase();
   $('highway-name').textContent=match.link.highwayName;
   $('direction').textContent=`${match.link.directionName}・${match.link.destinationName}`;
   setStatus(statusText||`GPS精度 ±${Math.round(accuracy)}m`);
@@ -748,6 +748,8 @@ function populateEditorRoads() {
   const preferredOrder=new Map([
     ['e1a-shintomei-west',0],['e1a-shintomei-kanagawa-west',-1],
     ['e1a-shintomei-east',0],['e1a-shintomei-kanagawa-east',1],
+    ['e70-izu-main-down',0],['e70-izu-amagi-down',1],['e70-izu-kawazu-down',2],
+    ['e70-izu-kawazu-up',0],['e70-izu-amagi-up',1],['e70-izu-main-up',2],
   ]);
   for(const group of editorRoadGroups.values())group.links.sort((a,b)=>(preferredOrder.get(a.id)??links.indexOf(a))-(preferredOrder.get(b.id)??links.indexOf(b)));
   renderEditorRegions();
@@ -755,6 +757,13 @@ function populateEditorRoads() {
 }
 
 const roadSearchMetadata = {
+  '伊豆縦貫自動車道':{regions:['東海'],aliases:['伊豆縦貫道','伊豆縦貫','E70','いずじゅうかん','東駿河湾環状道路','天城北道路','河津下田道路']},
+  '伊豆中央道':{regions:['東海'],aliases:['伊豆中央道路','いずちゅうおう','R136']},
+  '修善寺道路':{regions:['東海'],aliases:['修善寺道','しゅぜんじ','R136']},
+  '箱根新道':{regions:['関東'],aliases:['はこねしんどう','箱根バイパス','R1']},
+  '箱根ターンパイク':{regions:['関東','東海'],aliases:['ターンパイク','アネスト岩田ターンパイク箱根','はこねたーんぱいく']},
+  '保土ヶ谷バイパス':{regions:['関東'],aliases:['保土ケ谷バイパス','保土谷バイパス','ほどがやばいぱす','R16']},
+  '横浜新道':{regions:['関東'],aliases:['よこはましんどう','E83']},
   '東北自動車道':{regions:['東北','関東'],aliases:['東北道','E4','とうほく','トウホク']},
   '青森自動車道':{regions:['東北'],aliases:['青森道','E4A','あおもり','アオモリ']},
   '首都圏中央連絡自動車道':{regions:['関東'],aliases:['圏央道','C4','しゅとけんちゅうおうれんらく','けんおうどう']},
