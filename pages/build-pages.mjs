@@ -18,6 +18,7 @@ if (!/^\d{4}$/.test(pin ?? '')) {
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
 await mkdir(path.join(output, 'data'), { recursive: true });
+await cp(path.join(source, 'assets'), path.join(output, 'assets'), { recursive: true });
 for (const file of ['index.html', 'styles.css', 'navigation-data.js', 'road-matcher.js', 'app.js', 'highway-icon.png', 'manifest.webmanifest']) {
   await cp(path.join(source, file), path.join(output, file));
 }
