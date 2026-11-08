@@ -2,12 +2,12 @@ const config = window.HIGHWAY_ASSIST_CONFIG || {};
 const facilityLabels = {restaurant:'食事',fuel:'ガソリンスタンド',convenienceStore:'コンビニ',cafe:'カフェ',hotSpring:'温泉',shower:'シャワー',viewArea:'ビューエリア'};
 const facilityIcons = {
   restaurant:'<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M5 3h3v11h2V3h3v11h2V3h3v12c0 3-2 6-5 7v15H9V22c-3-1-4-4-4-7V3Zm25 0c-6 6-8 14-7 23h4v11h5V3h-2Z"/></svg>',
-  convenienceStore:'<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M4 5h32l-3 10H7L4 5Zm3 13h26v19H7V18Zm5 5v14h7V23h-7Zm11 0v7h6v-7h-6Z"/></svg>',
+  convenienceStore:'<svg viewBox="0 0 40 40" aria-hidden="true"><rect x="2" y="5" width="36" height="30" rx="3" style="fill:none;stroke:currentColor;stroke-width:3"/><text x="20" y="26" text-anchor="middle" textLength="28" lengthAdjust="spacingAndGlyphs" style="fill:currentColor;stroke:none;font-family:Arial,sans-serif;font-size:17px;font-weight:900">24H</text></svg>',
   cafe:'<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M7 14h24v10c0 7-5 11-12 11S7 31 7 24V14Zm24 3v5h2c3 0 3-5 0-5h-2ZM10 38h23v-3H10v3ZM13 3c-4 4 3 5 0 9h3c4-4-3-5 0-9h-3Zm8 0c-4 4 3 5 0 9h3c4-4-3-5 0-9h-3Z"/></svg>',
   fuel:'<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M4 3h22v34H4V3Zm5 5v10h12V8H9Zm20 5 5 4v14c0 2 3 2 3 0V13l-4-5 2-2 5 6v19c0 7-10 7-10 0V20h-4v-4h3v-3Z"/></svg>',
-  hotSpring:'<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M8 3c-6 6 5 8 0 15h5c6-7-5-9 0-15H8Zm10 0c-6 6 5 8 0 15h5c6-7-5-9 0-15h-5Zm10 0c-6 6 5 8 0 15h5c6-7-5-9 0-15h-5ZM3 23c5 0 6 3 11 3s6-3 11-3 7 3 12 3v11H3V23Z"/></svg>',
+  hotSpring:'<svg viewBox="0 0 40 40" aria-hidden="true"><ellipse cx="20" cy="30" rx="16" ry="6" style="fill:none;stroke:currentColor;stroke-width:3.2"/><path d="M11 23c5-6-5-10 0-17M20 22c5-7-5-11 0-19M29 23c5-6-5-10 0-17" style="fill:none;stroke:currentColor;stroke-width:3.2;stroke-linecap:round"/></svg>',
   shower:'<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M4 17C4 9 10 3 18 3c6 0 11 3 13 8l-4 2c-2-4-5-6-9-6-6 0-10 4-10 10H4Zm23-5 9 9-17 3 8-12Zm-5 15a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm7-2a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm7-1a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm-10 10a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm8-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"/></svg>',
-  viewArea:'<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M5 8h8l3 7h8l3-7h8l4 25H25v-7H15v7H1L5 8Zm5 9a6 6 0 1 0 0 12 6 6 0 0 0 0-12Zm20 0a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z"/></svg>',
+  viewArea:'<svg viewBox="0 0 40 40" aria-hidden="true"><rect x="7" y="3" width="8" height="6" rx="1.5"/><rect x="25" y="3" width="8" height="6" rx="1.5"/><path d="M7 11h8l3 11H3l4-11Zm18 0h8l4 11H22l3-11ZM17 14h6v8h-6Z"/><path fill-rule="evenodd" d="M19 28a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-4 0a5 5 0 1 0-10 0 5 5 0 0 0 10 0Zm24 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-4 0a5 5 0 1 0-10 0 5 5 0 0 0 10 0Z"/></svg>',
 };
 const displayedFacilities = new Set(['restaurant','convenienceStore','cafe','fuel','hotSpring','shower','viewArea']);
 const displayedBrands = new Set(['starbucks','tullys','doutor','sevenEleven','lawson','familyMart','gooz','ministop','yoshinoya','matsuya','sukiya']);
