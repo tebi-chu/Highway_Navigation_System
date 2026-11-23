@@ -403,6 +403,10 @@ def main():
         local = json.loads(local_path.read_text(encoding="utf-8"))
         output["links"].extend(local["links"])
         output["points"].extend(local["points"])
+    tomeihan_path = ROOT / "web" / "data" / "tomeihan.json"
+    if tomeihan_path.exists():
+        from build_tomeihan import apply_catalogue
+        apply_catalogue(output, json.loads(tomeihan_path.read_text(encoding="utf-8")))
     DESTINATION.write_text(json.dumps(output, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
 
 

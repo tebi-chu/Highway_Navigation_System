@@ -8,6 +8,8 @@ const raw=JSON.parse(fs.readFileSync(path.join(root,'data-osm-ramps.json'),'utf8
 const junctions=junctionsFromPoints(data.links,data.points);
 const localFile=path.join(root,'web/data/local-roads.json');
 const localRamps=fs.existsSync(localFile)?JSON.parse(fs.readFileSync(localFile,'utf8')).junctionRamps||[]:[];
+const tomeihanFile=path.join(root,'web/data/tomeihan.json');
+if(fs.existsSync(tomeihanFile))localRamps.push(...JSON.parse(fs.readFileSync(tomeihanFile,'utf8')).junctionRamps||[]);
 for(const junction of junctions) {
   junction.ramps=raw.elements.filter(way=>way.tags?.highway==='motorway_link'&&way.geometry?.length>1)
     .map(way=>way.geometry.map(point=>({latitude:point.lat,longitude:point.lon})))

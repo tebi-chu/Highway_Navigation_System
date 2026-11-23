@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "updatedAt": "2026-11-08",
+  "updatedAt": "2026-11-23",
   "regions": [
     {
       "id": "regional-expressways",
-      "name": "登録済み高速道路・伊豆縦貫道・箱根新道・ターンパイク・保土ヶ谷バイパス・横浜新道（両方向）",
+      "name": "登録済み高速道路・東名阪道・伊豆縦貫道・箱根新道・ターンパイク・保土ヶ谷バイパス・横浜新道（両方向）",
       "file": "data/regional-expressways.json",
       "bounds": {
         "south": 34.3,

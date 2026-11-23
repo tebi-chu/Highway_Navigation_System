@@ -299,7 +299,7 @@ function findUpcoming(match) {
   const byID=new Map(links.map(link=>[link.id,link])),results=[];
   // Group before filtering by progress: the IC must stay attached to its area
   // even after the original IC ramp position has already been passed.
-  const displayPoints=HighwayNavigationData.groupedPoints(points);
+  const displayPoints=HighwayNavigationData.groupedPoints(points,{forNavigation:true});
   for(const point of displayPoints) if(point.linkID===match.link.id && point.offsetMeters>=match.offset-200) results.push({...point,remaining:point.offsetMeters-match.offset});
   const queue=(match.link.nextLinkIDs||[]).map(id=>({id,distance:match.link.lengthMeters-match.offset}));
   const visited=new Map();
@@ -757,6 +757,7 @@ function populateEditorRoads() {
 }
 
 const roadSearchMetadata = {
+  '東名阪自動車道':{regions:['東海'],aliases:['東名阪道','東名阪','ひがしめいはん','とうめいはん','E23']},
   '伊豆縦貫自動車道':{regions:['東海'],aliases:['伊豆縦貫道','伊豆縦貫','E70','いずじゅうかん','東駿河湾環状道路','天城北道路','河津下田道路']},
   '伊豆中央道':{regions:['東海'],aliases:['伊豆中央道路','いずちゅうおう','R136']},
   '修善寺道路':{regions:['東海'],aliases:['修善寺道','しゅぜんじ','R136']},
@@ -859,7 +860,7 @@ function refreshEditorPoints(preferredID='') {
     button.setAttribute('role','option');button.setAttribute('aria-selected',point.id===selectedEditorPointID?'true':'false');button.dataset.pointId=point.id;
     const kind=document.createElement('span');kind.className='editor-point-kind';kind.textContent=(point.kinds||[point.kind]).join('・');
     const name=document.createElement('span');name.className='editor-point-name';name.textContent=point.name;
-    const meta=document.createElement('span');meta.className='editor-point-meta';meta.textContent=point.hidden?'非表示':`${(point.offsetMeters/1000).toFixed(1)} km`;
+    const meta=document.createElement('span');meta.className='editor-point-meta';meta.textContent=point.hidden?'非表示':point.kind==='IC'&&point.exitAvailable===false?'出口なし':`${(point.offsetMeters/1000).toFixed(1)} km`;
     button.append(kind,name,meta);
     button.addEventListener('click',()=>{selectedEditorPointID=point.id;refreshEditorPoints(point.id);renderEditorPreview();});
     return button;

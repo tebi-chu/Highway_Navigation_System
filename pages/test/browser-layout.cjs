@@ -32,7 +32,7 @@ const server=http.createServer(async(req,res)=>{
       await page.waitForTimeout(1000);
       const newRoads=await page.evaluate(()=>{
         populateEditorRoads();
-        return ['伊豆縦貫自動車道','伊豆中央道','修善寺道路','箱根新道','箱根ターンパイク','保土ヶ谷バイパス','横浜新道'].map(name=>({name,directions:[...editorRoadGroups.values()].filter(group=>group.highwayName===name).map(group=>group.directionName)}));
+        return ['東名阪自動車道','伊豆縦貫自動車道','伊豆中央道','修善寺道路','箱根新道','箱根ターンパイク','保土ヶ谷バイパス','横浜新道'].map(name=>({name,directions:[...editorRoadGroups.values()].filter(group=>group.highwayName===name).map(group=>group.directionName)}));
       });
       for(const road of newRoads)assert.deepEqual(road.directions.sort(),['上り','下り'],road.name);
       const layout=await page.evaluate(()=>{
@@ -83,6 +83,21 @@ const server=http.createServer(async(req,res)=>{
       await page.setViewportSize({width:844,height:390});await page.waitForTimeout(200);
       const landscapeRow=page.locator('.primary-column .live-card').filter({hasText:'Ebina'}).locator('.facility-row');
       assert.equal(await landscapeRow.evaluate(row=>row.classList.contains('facility-wrapped')),false);
+      await page.evaluate(()=>{
+        const link=links.find(link=>link.id==='e23-tomeihan-down');
+        const area=points.find(point=>point.linkID===link.id&&point.name==='御在所'&&point.kind==='SA');
+        render({link,offset:area.offsetMeters-500,speed:20},5);
+      });
+      assert.equal(await page.locator('#route-number').innerText(),'E23');
+      assert.equal(await page.locator('#highway-name').innerText(),'東名阪自動車道');
+      assert.equal(await page.locator('.primary-column .live-card').filter({hasText:'御在所'}).count(),1);
+      const hasNoExit=await page.evaluate(()=>{
+        const link=links.find(link=>link.id==='e1a-isewangan-west');
+        const ic=points.find(p=>p.linkID===link.id&&p.name==='みえ朝日'&&p.kind==='IC');
+        render({link,offset:ic.offsetMeters-100,speed:20},5);
+        return [...document.querySelectorAll('.live-card')].some(card=>card.textContent.includes('みえ朝日'));
+      });
+      assert.equal(hasNoExit,false);
       assert.deepEqual(errors,[]);
       console.log(`PASS landscape startup ${angle}: full height, opposite edge, 2/3 columns, romanization, merged PA/IC, portrait rotation`);
       await context.close();

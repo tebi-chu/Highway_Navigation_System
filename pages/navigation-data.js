@@ -33,11 +33,13 @@
     'e1a-shintomei':new Set(['駿河湾沼津','静岡','遠州森町','浜松']),
   };
   function colocated(area,ic) {
+    if(ic.separateFromArea)return false;
     if(area.linkID!==ic.linkID||baseName(area._sourceName||area.name)!==baseName(ic._sourceName||ic.name))return false;
     const family=Object.keys(associatedAreas).find(id=>area.linkID.startsWith(id+'-'));
     return associatedAreas[family]?.has(baseName(area._sourceName||area.name))||Math.abs(area.offsetMeters-ic.offsetMeters)<600;
   }
-  function groupedPoints(points) {
+  function groupedPoints(points,{forNavigation=false}={}) {
+    if(forNavigation)points=points.filter(point=>point.kind!=='IC'||point.exitAvailable!==false);
     const consumed=new Set(),groups=[];
     for(const area of points.filter(point=>!point.hidden&&['SA','PA'].includes(point.kind))) {
       const partners=points.filter(ic=>!ic.hidden&&ic.kind==='IC'&&colocated(area,ic));
