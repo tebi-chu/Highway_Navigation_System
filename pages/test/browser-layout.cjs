@@ -84,19 +84,35 @@ const server=http.createServer(async(req,res)=>{
         assert.ok(layout.outside&&(layout.fullWidth||layout.side)&&layout.noOverlap&&layout.bottom&&layout.metricsFit&&layout.iconsFit,JSON.stringify({size,layout}));
         if(size.width===440)assert.equal(layout.fullWidth,true);
       }
-      // Long text stays available without shrinking it or obscuring metrics.
+      // Long text remains one line and moves automatically without shrinking.
       await page.evaluate(()=>{
         const area=points.find(point=>point.name==='海老名'&&point.kind==='SA'&&point.linkID===lastRenderArgs.match.link.id);
         area.note='柿安・成城石井・くくる／お弁当がおいしい。休憩におすすめ。';
         render(...[lastRenderArgs.match,lastRenderArgs.accuracy]);
       });
-      const noteScroll=await page.locator('#point-list .facility-note').first().evaluate(note=>{
-        note.scrollTop=note.scrollHeight;
-        return {scrollTop:note.scrollTop,canScroll:note.scrollHeight>note.clientHeight,font:parseFloat(getComputedStyle(note).fontSize)};
+      const noteMotion=await page.locator('#point-list .facility-note').first().evaluate(async note=>{
+        const animation=note._memoAnimation,text=note.querySelector('.facility-note-text');
+        const duration=animation.effect.getTiming().duration;
+        animation.currentTime=1500+(duration-3000)/4;
+        window.oldMemoAnimation=animation;
+        await new Promise(resolve=>requestAnimationFrame(resolve));
+        return {time:animation.currentTime,scrolling:note.classList.contains('is-scrolling'),nowrap:getComputedStyle(text).whiteSpace==='nowrap',font:parseFloat(getComputedStyle(note).fontSize),oneLine:note.clientHeight<=parseFloat(getComputedStyle(note).lineHeight)+1,x:new DOMMatrixReadOnly(getComputedStyle(text).transform).m41};
       });
-      assert.ok(noteScroll.canScroll&&noteScroll.scrollTop>0);assert.ok(noteScroll.font>=20);
+      assert.ok(noteMotion.scrolling&&noteMotion.nowrap&&noteMotion.oneLine&&noteMotion.x<0);assert.ok(noteMotion.font>=20);
       await page.evaluate(()=>render(lastRenderArgs.match,lastRenderArgs.accuracy));
-      assert.equal(await page.locator('#point-list .facility-note').first().evaluate(note=>note.scrollTop),noteScroll.scrollTop);
+      const resumed=await page.locator('#point-list .facility-note').first().evaluate(note=>({time:note._memoAnimation.currentTime,oldState:window.oldMemoAnimation.playState}));
+      assert.ok(Math.abs(resumed.time-noteMotion.time)<300,'GPS update preserves memo animation phase');
+      assert.equal(resumed.oldState,'idle','detached animations are cancelled');
+      await page.evaluate(()=>{
+        const area=points.find(point=>point.name==='海老名'&&point.kind==='SA'&&point.linkID===lastRenderArgs.match.link.id);
+        area.note='おすすめ';render(lastRenderArgs.match,lastRenderArgs.accuracy);
+      });
+      assert.equal(await page.locator('#point-list .facility-note').first().evaluate(note=>!!note._memoAnimation),false,'short note stays still');
+      await page.evaluate(()=>{
+        const area=points.find(point=>point.name==='海老名'&&point.kind==='SA'&&point.linkID===lastRenderArgs.match.link.id);
+        area.note='柿安・成城石井・くくる／お弁当がおいしい。休憩におすすめ。';
+        render(lastRenderArgs.match,lastRenderArgs.accuracy);
+      });
       await page.setViewportSize({width:390,height:844});await page.waitForTimeout(150);
       const safeArea=await page.addStyleTag({content:'.navigation-screen{padding-top:59px!important;padding-bottom:34px!important}'});
       await page.evaluate(()=>render(lastRenderArgs.match,lastRenderArgs.accuracy));
@@ -111,6 +127,7 @@ const server=http.createServer(async(req,res)=>{
       const landscapeRow=landscapeCard.locator('.facility-row');
       assert.equal(await landscapeRow.evaluate(row=>row.classList.contains('facility-wrapped')),false);
       assert.ok(await landscapeCard.locator('.facility-note').evaluate(note=>parseFloat(getComputedStyle(note).fontSize)>=25));
+      assert.ok(await landscapeCard.locator('.facility-note').evaluate(note=>!!note._memoAnimation),'landscape long note scrolls');
       assert.equal(await page.locator('.compact-column .facility-note,.compact-column .facility-row').count(),0);
       // A note with no registered equipment still has its own bottom band.
       await page.evaluate(()=>{

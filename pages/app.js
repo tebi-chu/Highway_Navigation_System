@@ -455,11 +455,6 @@ function fitFacilityRows(root) {
     // stays below the equipment at left. Larger screens use the full width.
     const sideNote=details.clientHeight<Math.max(metricHeight,iconHeight)+lineHeight;
     details.classList.toggle('note-side',sideNote);
-    // Keep the existing time/distance and icon sizes. Use two complete memo
-    // lines only when they fit; otherwise keep one scrollable line.
-    const available=details.clientHeight-(sideNote?iconHeight:Math.max(metricHeight,iconHeight));
-    const lines=Math.max(1,Math.min(2,Math.floor(available/lineHeight)));
-    note.style.setProperty('--note-max-height',`${lines*lineHeight}px`);
   }
   for(const row of root.querySelectorAll('.facility-row')) {
     row.classList.remove('facility-wrapped');
@@ -468,9 +463,41 @@ function fitFacilityRows(root) {
   }
 }
 
+function animateFacilityNotes(root,previousStates) {
+  for(const note of root.querySelectorAll('.facility-note')) {
+    const text=note.querySelector('.facility-note-text');
+    const style=getComputedStyle(note);
+    const available=note.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight);
+    const distance=text.scrollWidth-available;
+    if(distance<=1)continue;
+    // Read the beginning and end at rest; move both ways at 28 CSS pixels/s.
+    const pause=1500,travel=distance/28*1000,duration=2*(pause+travel);
+    const first='translateX(0px)',last=`translateX(${-distance}px)`;
+    const animation=text.animate([
+      {transform:first,offset:0},
+      {transform:first,offset:pause/duration},
+      {transform:last,offset:(pause+travel)/duration},
+      {transform:last,offset:(2*pause+travel)/duration},
+      {transform:first,offset:1},
+    ],{duration,iterations:Infinity,easing:'linear'});
+    const previous=previousStates.get(note.closest('.live-card').dataset.pointId);
+    if(previous?.text===note.textContent&&previous.duration>0) {
+      // Preserve phase through GPS redraws and when rotating the phone.
+      animation.currentTime=Math.abs(previous.duration-duration)<1?previous.time:previous.time/previous.duration*duration;
+    }
+    note._memoAnimation=animation;
+    note.classList.add('is-scrolling');
+  }
+}
+
 function render(match, accuracy, statusText='') {
   const facilityScroll=new Map([...$('point-list').querySelectorAll('.facility-row')].map(row=>[row.closest('.live-card').dataset.pointId,row.scrollTop]));
-  const noteScroll=new Map([...$('point-list').querySelectorAll('.facility-note')].map(note=>[note.closest('.live-card').dataset.pointId,note.scrollTop]));
+  const memoAnimationStates=new Map([...$('point-list').querySelectorAll('.facility-note')].map(note=>{
+    const animation=note._memoAnimation;
+    const state={text:note.textContent,time:animation?.currentTime??0,duration:animation?.effect.getTiming().duration??0};
+    animation?.cancel();
+    return [note.closest('.live-card').dataset.pointId,state];
+  }));
   lastRenderArgs={match,accuracy,statusText};
   const upcoming=findUpcoming(match);
   const nearestUpcomingID=upcoming[0]?.id||'';
@@ -498,7 +525,7 @@ function render(match, accuracy, statusText='') {
     const branded=new Set(visibleBrands.flatMap(brand=>['starbucks','tullys','doutor'].includes(brand)?['cafe']:['sevenEleven','lawson','familyMart','gooz','ministop'].includes(brand)?['convenienceStore']:['yoshinoya','matsuya','sukiya'].includes(brand)?['restaurant']:[]));
     const brands=visibleBrands.map(brand=>`<b class="brand-badge brand-${brand}">${brandLabels[brand]}</b>`);
     const icons=item.facilities.filter(facility=>displayedFacilities.has(facility)&&!branded.has(facility)).map(facility=>`<span class="facility-icon" title="${facilityLabels[facility]||''}">${facilityIcons[facility]||''}</span>`);
-    const note=item.note?`<b class="facility-note" tabindex="0" aria-label="ひとことメモ" title="${escapeHTML(item.note)}">★ ${escapeHTML(item.note)}</b>`:'';
+    const note=item.note?`<b class="facility-note" tabindex="0" aria-label="ひとことメモ" title="${escapeHTML(item.note)}"><span class="facility-note-text">★ ${escapeHTML(item.note)}</span></b>`:'';
     const facilities=[...brands,...icons].join('');
     const previewing=pendingLocationCorrection?.itemID===item.id;
     const displayRemaining=previewing?0:item.remaining;
@@ -531,7 +558,7 @@ function render(match, accuracy, statusText='') {
   fitRomanizedLabels($('point-list'));
   fitFacilityRows($('point-list'));
   for(const row of $('point-list').querySelectorAll('.facility-row'))row.scrollTop=facilityScroll.get(row.closest('.live-card').dataset.pointId)||0;
-  for(const note of $('point-list').querySelectorAll('.facility-note'))note.scrollTop=noteScroll.get(note.closest('.live-card').dataset.pointId)||0;
+  animateFacilityNotes($('point-list'),memoAnimationStates);
 }
 
 let viewportFrame=null;
