@@ -75,14 +75,51 @@ const server=http.createServer(async(req,res)=>{
       for(const size of [{width:390,height:844},{width:440,height:956}]) {
         await page.setViewportSize(size);await page.waitForTimeout(150);
         const ebina=page.locator('#point-list .live-card').filter({hasText:'Ebina'});
-        const facility=await ebina.locator('.facility-row').evaluate(row=>({wrapped:row.classList.contains('facility-wrapped'),height:row.clientHeight,contentHeight:row.scrollHeight,children:[...row.children].map(child=>({width:child.clientWidth,contentWidth:child.scrollWidth})),note:row.querySelector('.facility-note').textContent}));
-        assert.equal(facility.wrapped,true);assert.ok(facility.children.every(item=>item.contentWidth<=item.width+1));
-        assert.ok(facility.contentHeight<=facility.height+1,JSON.stringify({size,facility}));
-        assert.equal(facility.note,'★ 柿安・成城石井・くくる');
+        const layout=await ebina.evaluate(card=>{
+          const note=card.querySelector('.facility-note'),row=card.querySelector('.facility-row'),metrics=card.querySelector('.live-metrics');
+          const n=note.getBoundingClientRect(),r=row.getBoundingClientRect(),m=metrics.getBoundingClientRect(),c=card.getBoundingClientRect();
+          return {note:note.textContent,font:parseFloat(getComputedStyle(note).fontSize),outside:!row.contains(note),fullWidth:Math.abs(n.width-c.width)<2,side:card.querySelector('.live-details').classList.contains('note-side'),noOverlap:n.top>=r.bottom-1&&(n.top>=m.bottom-1||n.right<=m.left+1),bottom:n.bottom<=c.bottom+1,metricHeight:m.height,metricChildren:[...metrics.children].map(item=>item.getBoundingClientRect().height),metricsFit:[...metrics.children].every(item=>{const b=item.getBoundingClientRect();return b.top>=m.top-1&&b.bottom<=m.bottom+1&&b.right<=m.right+1;}),iconsFit:[...row.children].every(item=>item.scrollWidth<=item.clientWidth+1)};
+        });
+        assert.equal(layout.note,'★ 柿安・成城石井・くくる');assert.ok(layout.font>=20);
+        assert.ok(layout.outside&&(layout.fullWidth||layout.side)&&layout.noOverlap&&layout.bottom&&layout.metricsFit&&layout.iconsFit,JSON.stringify({size,layout}));
+        if(size.width===440)assert.equal(layout.fullWidth,true);
       }
+      // Long text stays available without shrinking it or obscuring metrics.
+      await page.evaluate(()=>{
+        const area=points.find(point=>point.name==='海老名'&&point.kind==='SA'&&point.linkID===lastRenderArgs.match.link.id);
+        area.note='柿安・成城石井・くくる／お弁当がおいしい。休憩におすすめ。';
+        render(...[lastRenderArgs.match,lastRenderArgs.accuracy]);
+      });
+      const noteScroll=await page.locator('#point-list .facility-note').first().evaluate(note=>{
+        note.scrollTop=note.scrollHeight;
+        return {scrollTop:note.scrollTop,canScroll:note.scrollHeight>note.clientHeight,font:parseFloat(getComputedStyle(note).fontSize)};
+      });
+      assert.ok(noteScroll.canScroll&&noteScroll.scrollTop>0);assert.ok(noteScroll.font>=20);
+      await page.evaluate(()=>render(lastRenderArgs.match,lastRenderArgs.accuracy));
+      assert.equal(await page.locator('#point-list .facility-note').first().evaluate(note=>note.scrollTop),noteScroll.scrollTop);
+      await page.setViewportSize({width:390,height:844});await page.waitForTimeout(150);
+      const safeArea=await page.addStyleTag({content:'.navigation-screen{padding-top:59px!important;padding-bottom:34px!important}'});
+      await page.evaluate(()=>render(lastRenderArgs.match,lastRenderArgs.accuracy));
+      const safeMetrics=await page.locator('#point-list .live-card').filter({hasText:'Ebina'}).locator('.live-metrics').evaluate(metrics=>{
+        const m=metrics.getBoundingClientRect();
+        return [...metrics.children].every(child=>{const r=child.getBoundingClientRect();return r.top>=m.top-1&&r.bottom<=m.bottom+1;});
+      });
+      assert.equal(safeMetrics,true,'portrait memo respects iPhone safe areas');
+      await safeArea.evaluate(style=>style.remove());
       await page.setViewportSize({width:844,height:390});await page.waitForTimeout(200);
-      const landscapeRow=page.locator('.primary-column .live-card').filter({hasText:'Ebina'}).locator('.facility-row');
+      const landscapeCard=page.locator('.primary-column .live-card').filter({hasText:'Ebina'});
+      const landscapeRow=landscapeCard.locator('.facility-row');
       assert.equal(await landscapeRow.evaluate(row=>row.classList.contains('facility-wrapped')),false);
+      assert.ok(await landscapeCard.locator('.facility-note').evaluate(note=>parseFloat(getComputedStyle(note).fontSize)>=25));
+      assert.equal(await page.locator('.compact-column .facility-note,.compact-column .facility-row').count(),0);
+      // A note with no registered equipment still has its own bottom band.
+      await page.evaluate(()=>{
+        const area=points.find(point=>point.name==='海老名'&&point.kind==='SA'&&point.linkID===lastRenderArgs.match.link.id);
+        area.facilities=[];area.brands=[];
+        render(lastRenderArgs.match,lastRenderArgs.accuracy);
+      });
+      assert.equal(await landscapeCard.locator('.facility-note').count(),1);
+      assert.equal(await landscapeCard.locator('.facility-row').count(),0);
       await page.evaluate(()=>{
         const link=links.find(link=>link.id==='e23-tomeihan-down');
         const area=points.find(point=>point.linkID===link.id&&point.name==='御在所'&&point.kind==='SA');

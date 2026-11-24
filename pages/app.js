@@ -443,6 +443,24 @@ $('location-form').addEventListener('submit',async event=>{
 });
 
 function fitFacilityRows(root) {
+  for(const details of root.querySelectorAll('.live-details.has-note')) {
+    const note=details.querySelector('.facility-note');
+    const metrics=details.querySelector('.live-metrics');
+    const row=details.querySelector('.facility-row');
+    const lineHeight=parseFloat(getComputedStyle(note).lineHeight);
+    const metricHeight=[...metrics.children].reduce((height,item)=>height+item.getBoundingClientRect().height,0);
+    const iconHeight=row?Math.max(0,...[...row.children].map(item=>item.getBoundingClientRect().height))+6:0;
+    details.closest('.live-card').classList.toggle('memo-tight-title',details.clientHeight<Math.max(metricHeight,iconHeight+lineHeight));
+    // On shorter portrait screens the metrics span both rows while the memo
+    // stays below the equipment at left. Larger screens use the full width.
+    const sideNote=details.clientHeight<Math.max(metricHeight,iconHeight)+lineHeight;
+    details.classList.toggle('note-side',sideNote);
+    // Keep the existing time/distance and icon sizes. Use two complete memo
+    // lines only when they fit; otherwise keep one scrollable line.
+    const available=details.clientHeight-(sideNote?iconHeight:Math.max(metricHeight,iconHeight));
+    const lines=Math.max(1,Math.min(2,Math.floor(available/lineHeight)));
+    note.style.setProperty('--note-max-height',`${lines*lineHeight}px`);
+  }
   for(const row of root.querySelectorAll('.facility-row')) {
     row.classList.remove('facility-wrapped');
     const clipped=row.scrollWidth>row.clientWidth+1||[...row.children].some(item=>item.scrollWidth>item.clientWidth+1);
@@ -452,6 +470,7 @@ function fitFacilityRows(root) {
 
 function render(match, accuracy, statusText='') {
   const facilityScroll=new Map([...$('point-list').querySelectorAll('.facility-row')].map(row=>[row.closest('.live-card').dataset.pointId,row.scrollTop]));
+  const noteScroll=new Map([...$('point-list').querySelectorAll('.facility-note')].map(note=>[note.closest('.live-card').dataset.pointId,note.scrollTop]));
   lastRenderArgs={match,accuracy,statusText};
   const upcoming=findUpcoming(match);
   const nearestUpcomingID=upcoming[0]?.id||'';
@@ -479,11 +498,13 @@ function render(match, accuracy, statusText='') {
     const branded=new Set(visibleBrands.flatMap(brand=>['starbucks','tullys','doutor'].includes(brand)?['cafe']:['sevenEleven','lawson','familyMart','gooz','ministop'].includes(brand)?['convenienceStore']:['yoshinoya','matsuya','sukiya'].includes(brand)?['restaurant']:[]));
     const brands=visibleBrands.map(brand=>`<b class="brand-badge brand-${brand}">${brandLabels[brand]}</b>`);
     const icons=item.facilities.filter(facility=>displayedFacilities.has(facility)&&!branded.has(facility)).map(facility=>`<span class="facility-icon" title="${facilityLabels[facility]||''}">${facilityIcons[facility]||''}</span>`);
-    const note=item.note?`<b class="facility-note" title="${escapeHTML(item.note)}">★ ${escapeHTML(item.note)}</b>`:'';
-    const facilities=[...brands,...icons,note].join('');
+    const note=item.note?`<b class="facility-note" tabindex="0" aria-label="ひとことメモ" title="${escapeHTML(item.note)}">★ ${escapeHTML(item.note)}</b>`:'';
+    const facilities=[...brands,...icons].join('');
     const previewing=pendingLocationCorrection?.itemID===item.id;
     const displayRemaining=previewing?0:item.remaining;
-    article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name"><span>${escapeHTML(item.name)}</span>${item.romanizedName?`<small>${escapeHTML(item.romanizedName)}</small>`:''}</strong></div><div class="live-details${facilities?'':' no-facilities'}">${facilities?`<div class="facility-row">${facilities}</div>`:''}<div class="live-metrics"><b class="arrival-time">${eta(displayRemaining/(speedKph*1000/3600))}<small>通過</small></b><b class="next-distance">${(Math.max(0,displayRemaining)/1000).toFixed(1)}<small>km</small></b></div></div>`;
+    article.innerHTML=`<div class="live-title"><div class="point-kinds">${displayKinds.map(kind=>`<span>${kind}</span>`).join('')}</div><strong class="point-name"><span>${escapeHTML(item.name)}</span>${item.romanizedName?`<small>${escapeHTML(item.romanizedName)}</small>`:''}</strong></div><div class="live-details${facilities?'':' no-facilities'}${note?' has-note':''}">${facilities?`<div class="facility-row">${facilities}</div>`:''}<div class="live-metrics"><b class="arrival-time">${eta(displayRemaining/(speedKph*1000/3600))}<small>通過</small></b><b class="next-distance">${(Math.max(0,displayRemaining)/1000).toFixed(1)}<small>km</small></b></div>${note}</div>`;
+    const noteElement=article.querySelector('.facility-note');
+    if(noteElement)for(const type of ['pointerdown','click'])noteElement.addEventListener(type,event=>event.stopPropagation());
     if(previewing)article.classList.add('location-preview');
     addLongPress(article,item);
     if(correctionEligible&&navigationEditingEnabled) {
@@ -510,6 +531,7 @@ function render(match, accuracy, statusText='') {
   fitRomanizedLabels($('point-list'));
   fitFacilityRows($('point-list'));
   for(const row of $('point-list').querySelectorAll('.facility-row'))row.scrollTop=facilityScroll.get(row.closest('.live-card').dataset.pointId)||0;
+  for(const note of $('point-list').querySelectorAll('.facility-note'))note.scrollTop=noteScroll.get(note.closest('.live-card').dataset.pointId)||0;
 }
 
 let viewportFrame=null;
